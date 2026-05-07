@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Management Network</h1>
+
+<section class="card">
+  <p><strong>Interface:</strong> {{ mgmt.iface or "—" }}</p>
+  <p><strong>IP:</strong> {{ mgmt.ip or "—" }}</p>
+  <p><strong>State:</strong> {{ mgmt.operstate }}</p>
+</section>
+
+<section class="card">
+  <h2>Configure</h2>
+  <form method="post" action="/api/management/configure">
+    <label>SSID <input name="ssid" value="{{ cfg.management.ssid }}" required></label>
+    <label>PSK <input name="psk" type="password" value="{{ cfg.management.psk }}"></label>
+    <label>Country <input name="country" value="{{ cfg.general.country_code }}" maxlength="2"></label>
+    <button type="submit">Save</button>
+  </form>
+  <form method="post" action="/api/management/connect">
+    <button type="submit">(Re)connect</button>
+  </form>
+</section>
+{% endblock %}

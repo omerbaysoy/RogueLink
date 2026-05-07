@@ -1,0 +1,12 @@
+# Force LF line endings on all source so shell scripts run on Linux/Pi.
+* text=auto eol=lf
+
+*.sh text eol=lf
+*.service text eol=lf
+*.py text eol=lf
+*.toml text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.nft text eol=lf

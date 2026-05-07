@@ -1,0 +1,426 @@
+"""roguelink CLI — Typer + Rich.
+
+The CLI talks to the local daemon's JSON API over loopback. When the daemon
+is not running (e.g. during install before the systemd unit starts), the
+CLI falls back to invoking the same service-layer functions directly so a
+fresh install can still bootstrap the device.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+from typing import Any, Dict, Optional
+
+import typer
+from rich.console import Console
+from rich.table import Table
+from rich.text import Text
+
+from . import __subtitle__, __title__, __version__
+from . import auth, config as roguelink_config, paths, state
+from .services import (
+    adapter_manager,
+    ap_manager,
+    driver_manager,
+    firewall_manager,
+    lan_manager,
+    logs as logs_service,
+    management_manager,
+    metrics,
+    system_manager,
+    wan_manager,
+)
+
+
+app = typer.Typer(add_completion=False, no_args_is_help=False)
+mgmt_app = typer.Typer(help="Management interface controls")
+wan_app = typer.Typer(help="WAN uplink controls")
+ap_app = typer.Typer(help="AP mode controls")
+lan_app = typer.Typer(help="Wired LAN (eth0) controls")
+sys_app = typer.Typer(help="System helpers (Pi 5 setup, status)")
+
+app.add_typer(mgmt_app, name="mgmt")
+app.add_typer(wan_app, name="wan")
+app.add_typer(ap_app, name="ap")
+app.add_typer(lan_app, name="lan")
+app.add_typer(sys_app, name="system")
+
+console = Console()
+
+ASCII_BANNER = r"""
+██████╗  ██████╗  ██████╗ ██╗   ██╗███████╗██╗     ██╗███╗   ██╗██╗  ██╗
+██╔══██╗██╔═══██╗██╔════╝ ██║   ██║██╔════╝██║     ██║████╗  ██║██║ ██╔╝
+██████╔╝██║   ██║██║  ███╗██║   ██║█████╗  ██║     ██║██╔██╗ ██║█████╔╝
+██╔══██╗██║   ██║██║   ██║██║   ██║██╔══╝  ██║     ██║██║╚██╗██║██╔═██╗
+██║  ██║╚██████╔╝╚██████╔╝╚██████╔╝███████╗███████╗██║██║ ╚████║██║  ██╗
+╚═╝  ╚═╝ ╚═════╝  ╚═════╝  ╚═════╝ ╚══════╝╚══════╝╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝
+"""
+
+
+def _print_banner() -> None:
+    console.print(Text(ASCII_BANNER, style="bold green"))
+    console.print(f"[bold green]{__title__}[/bold green]  [dim]{__subtitle__}[/dim]  v{__version__}")
+    overview = metrics.overview()
+    sys = overview["system"]
+    mgmt = overview["management"]
+    wan = overview["wan"]
+    ap = overview["ap"]
+    lan = overview["lan"]
+    fw = overview["firewall"]
+
+    table = Table(show_header=False, box=None, pad_edge=False)
+    table.add_column(style="bold cyan")
+    table.add_column()
+    table.add_row("Management IP", str(mgmt.get("ip") or "—"))
+    table.add_row("Dashboard URL", overview["dashboard_url"])
+    table.add_row(
+        "WAN",
+        _fmt_role(
+            wan.get("connected"),
+            f"{wan.get('iface') or '—'} · {wan.get('ssid') or '—'} · {wan.get('ip') or '—'}",
+            "disconnected",
+        ),
+    )
+    table.add_row(
+        "AP",
+        _fmt_role(
+            ap.get("running"),
+            f"{ap.get('iface') or '—'} · {ap.get('ssid') or '—'} · {ap.get('subnet') or '—'}",
+            "stopped",
+        ),
+    )
+    table.add_row(
+        "LAN (eth0)",
+        _fmt_role(
+            lan.get("running"),
+            f"{lan.get('iface') or '—'} · {lan.get('subnet') or '—'}",
+            "stopped",
+        ),
+    )
+    table.add_row(
+        "Firewall",
+        "[green]active[/green]" if fw.get("active") else "[yellow]inactive[/yellow]",
+    )
+    table.add_row(
+        "Daemon",
+        "[green]active[/green]" if sys["daemon"]["active"] else f"[yellow]{sys['daemon']['raw']}[/yellow]",
+    )
+    table.add_row(
+        "Temperature",
+        f"{sys['temperature_c']} °C" if sys.get("temperature_c") is not None else "—",
+    )
+    console.print(table)
+
+    warnings = []
+    warnings.extend(overview.get("adapter_warnings") or [])
+    if not sys["daemon"]["active"]:
+        warnings.append("roguelinkd is not active; run: sudo systemctl start roguelinkd")
+    if not fw.get("active"):
+        warnings.append("Firewall ruleset is not loaded; run: sudo roguelink firewall reapply")
+    if not wan.get("connected"):
+        warnings.append("No WAN uplink. AP/LAN clients will not have internet.")
+    if ap.get("running") and not wan.get("connected"):
+        warnings.append("AP is running but WAN is down — clients cannot reach the internet.")
+    if warnings:
+        console.print("\n[bold yellow]Warnings[/bold yellow]")
+        for w in warnings:
+            console.print(f"  [yellow]![/yellow] {w}")
+
+
+def _fmt_role(active: Optional[bool], text_active: str, text_inactive: str) -> str:
+    if active:
+        return f"[green]{text_active}[/green]"
+    return f"[dim]{text_inactive}[/dim]"
+
+
+@app.callback(invoke_without_command=True)
+def root(ctx: typer.Context) -> None:
+    if ctx.invoked_subcommand is None:
+        _print_banner()
+
+
+# ---------------------------------------------------------------------------
+# Top-level commands
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def status() -> None:
+    """Show RogueLink overall status."""
+    _print_banner()
+
+
+@app.command()
+def dashboard() -> None:
+    """Print the dashboard URL and login info."""
+    cfg = roguelink_config.load()
+    port = cfg.get("general", {}).get("api_port", 8080)
+    url = management_manager.dashboard_url(port)
+    console.print(f"Dashboard URL: [bold]{url}[/bold]")
+    if os.path.exists(paths.INITIAL_PASSWORD_PATH):
+        console.print(
+            f"Initial credentials are stored at [cyan]{paths.INITIAL_PASSWORD_PATH}[/cyan] (root-only)."
+        )
+    else:
+        console.print("Login: admin / (your configured password)")
+
+
+@app.command()
+def adapters() -> None:
+    """List wireless adapters and detected roles."""
+    roles = adapter_manager.detect_roles()
+    table = Table(title="Wireless adapters", show_lines=False)
+    for col in ("iface", "mac", "driver", "chipset", "usb_id", "phy", "operstate", "role"):
+        table.add_column(col)
+    for ad in adapter_manager.list_adapters():
+        role = next((r for r, i in roles.items() if i == ad["iface"]), "—")
+        table.add_row(
+            ad["iface"], ad["mac"], ad["driver"], ad["chipset"],
+            ad["usb_id"] or "—", ad["phy"] or "—", ad["operstate"], role,
+        )
+    console.print(table)
+    warns = adapter_manager.warnings()
+    if warns:
+        console.print("\n[yellow]Warnings:[/yellow]")
+        for w in warns:
+            console.print(f"  [yellow]![/yellow] {w}")
+
+
+@app.command()
+def clients() -> None:
+    """Show connected AP and LAN clients."""
+    ap_clients = ap_manager.clients()
+    lan_clients = lan_manager.clients()
+    for label, items in (("AP clients", ap_clients), ("LAN clients", lan_clients)):
+        table = Table(title=label)
+        for col in ("hostname", "ip", "mac", "expires"):
+            table.add_column(col)
+        for c in items:
+            table.add_row(c.get("hostname") or "—", c["ip"], c["mac"], c["expires"])
+        if not items:
+            table.add_row("—", "—", "—", "no leases")
+        console.print(table)
+
+
+@app.command()
+def logs(name: str = "daemon", lines: int = 80) -> None:
+    """Tail a RogueLink log file."""
+    output = logs_service.tail(name, lines)
+    if not output:
+        console.print(f"[dim]Log '{name}' is empty or missing.[/dim]")
+        return
+    for line in output:
+        console.print(line)
+
+
+# ---------------------------------------------------------------------------
+# mgmt
+# ---------------------------------------------------------------------------
+
+
+@mgmt_app.command("status")
+def mgmt_status() -> None:
+    info = management_manager.status()
+    console.print(json.dumps(info, indent=2))
+
+
+@mgmt_app.command("connect")
+def mgmt_connect(
+    ssid: str = typer.Option(..., "--ssid", help="Management Wi-Fi SSID"),
+    psk: str = typer.Option("", "--psk", help="Management Wi-Fi password"),
+    country: str = typer.Option("", "--country", help="Country code (e.g. US)"),
+) -> None:
+    management_manager.configure(ssid, psk, country or None)
+    res = management_manager.connect()
+    console.print(json.dumps(res, indent=2))
+
+
+# ---------------------------------------------------------------------------
+# wan
+# ---------------------------------------------------------------------------
+
+
+@wan_app.command("status")
+def wan_status() -> None:
+    console.print(json.dumps(wan_manager.status(), indent=2))
+
+
+@wan_app.command("scan")
+def wan_scan(iface: str = typer.Option(..., "--iface")) -> None:
+    networks = wan_manager.scan(iface)
+    table = Table(title=f"Scan on {iface}")
+    for col in ("ssid", "bssid", "channel", "signal", "encryption"):
+        table.add_column(col)
+    for n in networks:
+        table.add_row(
+            n.get("ssid") or "",
+            n.get("bssid") or "",
+            str(n.get("channel") or "—"),
+            str(n.get("signal") or "—"),
+            n.get("encryption") or "—",
+        )
+    console.print(table)
+
+
+@wan_app.command("connect")
+def wan_connect(
+    iface: str = typer.Option(..., "--iface"),
+    ssid: str = typer.Option(..., "--ssid"),
+    psk: str = typer.Option("", "--psk"),
+    country: str = typer.Option("", "--country"),
+) -> None:
+    cfg = roguelink_config.load()
+    cc = country or cfg.get("general", {}).get("country_code", "US")
+    res = wan_manager.connect(iface, ssid, psk, cc)
+    _reapply_firewall()
+    console.print(json.dumps(res, indent=2))
+
+
+@wan_app.command("disconnect")
+def wan_disconnect() -> None:
+    res = wan_manager.disconnect()
+    _reapply_firewall()
+    console.print(json.dumps(res, indent=2))
+
+
+# ---------------------------------------------------------------------------
+# ap
+# ---------------------------------------------------------------------------
+
+
+@ap_app.command("start")
+def ap_start(
+    iface: str = typer.Option(..., "--iface"),
+    ssid: str = typer.Option(..., "--ssid"),
+    psk: str = typer.Option(..., "--psk"),
+    channel: int = typer.Option(0, "--channel"),
+    country: str = typer.Option("", "--country"),
+) -> None:
+    res = ap_manager.start(iface, ssid, psk, channel or None, country or None)
+    _reapply_firewall()
+    console.print(json.dumps(res, indent=2))
+
+
+@ap_app.command("stop")
+def ap_stop() -> None:
+    res = ap_manager.stop()
+    _reapply_firewall()
+    console.print(json.dumps(res, indent=2))
+
+
+@ap_app.command("status")
+def ap_status() -> None:
+    info = ap_manager.status()
+    info["clients"] = ap_manager.clients()
+    console.print(json.dumps(info, indent=2))
+
+
+# ---------------------------------------------------------------------------
+# lan
+# ---------------------------------------------------------------------------
+
+
+@lan_app.command("status")
+def lan_status() -> None:
+    info = lan_manager.status()
+    info["clients"] = lan_manager.clients()
+    console.print(json.dumps(info, indent=2))
+
+
+@lan_app.command("start")
+def lan_start(iface: str = typer.Option("eth0", "--iface")) -> None:
+    res = lan_manager.start(iface or None)
+    _reapply_firewall()
+    console.print(json.dumps(res, indent=2))
+
+
+@lan_app.command("stop")
+def lan_stop() -> None:
+    res = lan_manager.stop()
+    _reapply_firewall()
+    console.print(json.dumps(res, indent=2))
+
+
+# ---------------------------------------------------------------------------
+# system
+# ---------------------------------------------------------------------------
+
+
+@sys_app.command("info")
+def system_info() -> None:
+    console.print(json.dumps(system_manager.overview(), indent=2))
+
+
+@sys_app.command("apply-pi5")
+def system_apply_pi5() -> None:
+    """Apply Pi 5 fan, PCIe Gen 3, and light overclock blocks to /boot config."""
+    results = system_manager.apply_pi5_boot_config()
+    zram = system_manager.apply_zram()
+    for r in results + [zram]:
+        console.print(json.dumps(r, indent=2))
+    if system_manager.reboot_required():
+        console.print("[bold yellow]Reboot required to activate boot config changes.[/bold yellow]")
+
+
+@sys_app.command("install-driver")
+def system_install_driver(chipset: str = typer.Argument(..., help="rtl8812au|rtl88x2bu|rtl8188eus|mt7612u")) -> None:
+    res = driver_manager.install_for(chipset)
+    console.print(json.dumps(res, indent=2))
+
+
+@app.command("firewall")
+def firewall_cmd(action: str = typer.Argument("status", help="status|reapply|flush")) -> None:
+    """Inspect or reapply nftables ruleset."""
+    if action == "status":
+        console.print(json.dumps(firewall_manager.status(), indent=2))
+    elif action == "reapply":
+        console.print(json.dumps(_reapply_firewall(), indent=2))
+    elif action == "flush":
+        console.print(json.dumps(firewall_manager.flush(), indent=2))
+    else:
+        console.print(f"[red]Unknown firewall action: {action}[/red]")
+        raise typer.Exit(2)
+
+
+@app.command("set-password")
+def set_password(
+    username: str = typer.Option("admin", "--username"),
+    password: str = typer.Option(..., "--password", prompt=True, hide_input=True, confirmation_prompt=True),
+) -> None:
+    auth.set_password(username, password)
+    auth.clear_initial_password_file()
+    console.print("[green]Password updated.[/green]")
+
+
+@app.command()
+def daemon() -> None:
+    """Run roguelinkd in the foreground (used by systemd ExecStart)."""
+    from . import daemon as daemon_module
+
+    raise typer.Exit(daemon_module.main())
+
+
+def _reapply_firewall() -> Dict[str, Any]:
+    cfg = roguelink_config.load()
+    api_port = cfg.get("general", {}).get("api_port", 8080)
+    wan = wan_manager.status()
+    ap = ap_manager.status()
+    lan = lan_manager.status()
+    mgmt = management_manager.status()
+    return firewall_manager.reapply_from_state(
+        wan_iface=wan.get("iface") if wan.get("connected") else None,
+        ap_iface=ap.get("iface") if ap.get("running") else None,
+        lan_iface=lan.get("iface") if lan.get("running") else None,
+        mgmt_iface=mgmt.get("iface"),
+        api_port=api_port,
+    )
+
+
+def main() -> None:  # pragma: no cover
+    app()
+
+
+if __name__ == "__main__":  # pragma: no cover
+    main()

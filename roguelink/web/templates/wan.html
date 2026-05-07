@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>WAN Uplink</h1>
+
+<section class="card">
+  <p><strong>Status:</strong> {{ "Connected" if wan.connected else "Disconnected" }}</p>
+  <p><strong>Interface:</strong> {{ wan.iface or "—" }}</p>
+  <p><strong>SSID:</strong> {{ wan.ssid or "—" }}</p>
+  <p><strong>IP:</strong> {{ wan.ip or "—" }} &nbsp; <strong>Gateway:</strong> {{ wan.gateway or "—" }}</p>
+  <p><strong>Signal:</strong> {{ wan.signal or "—" }} dBm</p>
+  <p><strong>DNS:</strong> {{ wan.dns | join(", ") if wan.dns else "—" }}</p>
+</section>
+
+<section class="card">
+  <h2>Scan and Connect</h2>
+  <form method="post" action="/api/wan/scan">
+    <label>Scan interface
+      <select name="iface" required>
+        {% for ad in adapters %}
+          {% if not ad.onboard %}
+          <option value="{{ ad.iface }}" {% if roles.wan == ad.iface %}selected{% endif %}>{{ ad.iface }} — {{ ad.chipset_label }}</option>
+          {% endif %}
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Scan (JSON)</button>
+  </form>
+
+  <form method="post" action="/api/wan/connect">
+    <label>Interface
+      <select name="iface" required>
+        {% for ad in adapters %}
+          {% if not ad.onboard %}
+          <option value="{{ ad.iface }}" {% if roles.wan == ad.iface %}selected{% endif %}>{{ ad.iface }}</option>
+          {% endif %}
+        {% endfor %}
+      </select>
+    </label>
+    <label>SSID <input name="ssid" required></label>
+    <label>PSK <input name="psk" type="password"></label>
+    <label>Country <input name="country" value="{{ cfg.general.country_code }}" maxlength="2"></label>
+    <button type="submit">Connect</button>
+  </form>
+
+  <form method="post" action="/api/wan/disconnect">
+    <button type="submit">Disconnect</button>
+  </form>
+</section>
+{% endblock %}

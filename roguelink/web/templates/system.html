@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>System</h1>
+
+<section class="card">
+  <h2>Platform</h2>
+  <p><strong>Model:</strong> {{ system.platform.model }}</p>
+  <p><strong>OS:</strong> {{ system.platform.pretty_name }} ({{ system.platform.codename }})</p>
+  <p><strong>Kernel:</strong> {{ system.platform.kernel }}</p>
+  <p><strong>Architecture:</strong> {{ system.platform.architecture }}</p>
+  <p><strong>Pi 5:</strong> {{ "Yes" if system.platform.is_pi5 else "No" }}</p>
+</section>
+
+<section class="card">
+  <h2>Resources</h2>
+  <p><strong>CPU:</strong> {{ system.cpu_percent }}%</p>
+  <p><strong>RAM:</strong> {{ system.memory.used_mb }} / {{ system.memory.total_mb }} MB ({{ system.memory.percent }}%)</p>
+  <p><strong>Disk:</strong> {{ system.disk.used_gb }} / {{ system.disk.total_gb }} GB ({{ system.disk.percent }}%)</p>
+  <p><strong>Temperature:</strong> {{ system.temperature_c }} °C</p>
+  <p><strong>zram:</strong> {{ system.zram }}</p>
+  <p><strong>Daemon:</strong> {{ system.daemon.raw }}</p>
+</section>
+
+<section class="card">
+  <h2>Drivers</h2>
+  <table>
+    <thead><tr><th>Chipset</th><th>Kind</th><th>Available</th><th>Loaded</th></tr></thead>
+    <tbody>
+    {% for d in drivers %}
+      <tr>
+        <td>{{ d.label }}</td>
+        <td>{{ d.kind }}</td>
+        <td>{{ "Yes" if d.available else "No" }}</td>
+        <td>{{ "Yes" if d.loaded else "No" }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>Firewall</h2>
+  <p><strong>Active:</strong> {{ "Yes" if firewall.active else "No" }}</p>
+  <p><strong>Ruleset:</strong> {{ firewall.ruleset_path }}</p>
+  <pre>{{ firewall.inet }}</pre>
+</section>
+{% endblock %}

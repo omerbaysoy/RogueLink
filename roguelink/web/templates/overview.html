@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Overview</h1>
+<section class="grid">
+  <div class="card">
+    <h2>Management</h2>
+    <p><strong>IP:</strong> {{ data.management.ip or "—" }}</p>
+    <p><strong>Interface:</strong> {{ data.management.iface or "—" }}</p>
+    <p><strong>Dashboard:</strong> <a href="{{ data.dashboard_url }}">{{ data.dashboard_url }}</a></p>
+    <p><strong>Daemon:</strong> {{ "active" if data.system.daemon.active else data.system.daemon.raw }}</p>
+  </div>
+  <div class="card">
+    <h2>WAN</h2>
+    <p><strong>Status:</strong> {{ "Connected" if data.wan.connected else "Disconnected" }}</p>
+    <p><strong>SSID:</strong> {{ data.wan.ssid or "—" }}</p>
+    <p><strong>IP:</strong> {{ data.wan.ip or "—" }}</p>
+    <p><strong>Gateway:</strong> {{ data.wan.gateway or "—" }}</p>
+    <p><strong>Signal:</strong> {{ data.wan.signal or "—" }} dBm</p>
+    <p><strong>Internet:</strong> {{ data.internet }}</p>
+  </div>
+  <div class="card">
+    <h2>AP</h2>
+    <p><strong>Running:</strong> {{ "Yes" if data.ap.running else "No" }}</p>
+    <p><strong>Interface:</strong> {{ data.ap.iface or "—" }}</p>
+    <p><strong>SSID:</strong> {{ data.ap.ssid or "—" }}</p>
+    <p><strong>Subnet:</strong> {{ data.ap.subnet or "—" }}</p>
+    <p><strong>Channel:</strong> {{ data.ap.channel or "—" }}</p>
+  </div>
+  <div class="card">
+    <h2>LAN (eth0)</h2>
+    <p><strong>Running:</strong> {{ "Yes" if data.lan.running else "No" }}</p>
+    <p><strong>Interface:</strong> {{ data.lan.iface or "—" }}</p>
+    <p><strong>Subnet:</strong> {{ data.lan.subnet or "—" }}</p>
+    <p><strong>Address:</strong> {{ data.lan.address or "—" }}</p>
+  </div>
+  <div class="card">
+    <h2>System</h2>
+    <p><strong>Platform:</strong> {{ data.system.platform.model }}</p>
+    <p><strong>OS:</strong> {{ data.system.platform.pretty_name }}</p>
+    <p><strong>Kernel:</strong> {{ data.system.platform.kernel }}</p>
+    <p><strong>CPU:</strong> {{ data.system.cpu_percent }}%</p>
+    <p><strong>RAM:</strong> {{ data.system.memory.used_mb }} / {{ data.system.memory.total_mb }} MB ({{ data.system.memory.percent }}%)</p>
+    <p><strong>Disk:</strong> {{ data.system.disk.used_gb }} / {{ data.system.disk.total_gb }} GB ({{ data.system.disk.percent }}%)</p>
+    <p><strong>Temperature:</strong> {{ data.system.temperature_c }} °C</p>
+    <p><strong>zram:</strong> {{ data.system.zram }}</p>
+  </div>
+  <div class="card">
+    <h2>Firewall</h2>
+    <p><strong>Active:</strong> {{ "Yes" if data.firewall.active else "No" }}</p>
+    <p><strong>Ruleset:</strong> {{ data.firewall.ruleset_path }}</p>
+    <form method="post" action="/api/firewall/reapply">
+      <button type="submit">Reapply</button>
+    </form>
+  </div>
+</section>
+
+{% if data.adapter_warnings %}
+<section class="warnings">
+  <h2>Warnings</h2>
+  <ul>
+    {% for w in data.adapter_warnings %}<li>{{ w }}</li>{% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% endblock %}

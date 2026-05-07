@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Adapters</h1>
+
+{% if warnings %}
+<section class="warnings">
+  <h2>Warnings</h2>
+  <ul>{% for w in warnings %}<li>{{ w }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+
+<table>
+  <thead>
+    <tr>
+      <th>Interface</th><th>MAC</th><th>Driver</th><th>Chipset</th>
+      <th>USB ID</th><th>PHY</th><th>Op</th><th>Caps</th><th>Role</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for ad in adapters %}
+    <tr>
+      <td>{{ ad.iface }}</td>
+      <td>{{ ad.mac }}</td>
+      <td>{{ ad.driver }}</td>
+      <td>{{ ad.chipset_label }}</td>
+      <td>{{ ad.usb_id or "—" }}</td>
+      <td>{{ ad.phy or "—" }}</td>
+      <td>{{ ad.operstate }}</td>
+      <td>
+        {% if ad.ap_capable %}AP {% endif %}
+        {% if ad.wan_capable %}WAN {% endif %}
+        {% if ad.monitor_capable %}MON{% endif %}
+      </td>
+      <td>
+        {% if roles.management == ad.iface %}management
+        {% elif roles.wan == ad.iface %}wan
+        {% elif roles.ap == ad.iface %}ap
+        {% else %}—{% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="9">No wireless adapters detected.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Assign roles</h2>
+<form method="post" action="/api/adapters/role" class="inline">
+  <label>Role
+    <select name="role">
+      <option value="wan">wan</option>
+      <option value="ap">ap</option>
+    </select>
+  </label>
+  <label>Interface
+    <select name="iface">
+      <option value="">(unassign)</option>
+      {% for ad in adapters %}
+        {% if not ad.onboard %}
+        <option value="{{ ad.iface }}">{{ ad.iface }} — {{ ad.chipset_label }}</option>
+        {% endif %}
+      {% endfor %}
+    </select>
+  </label>
+  <button type="submit">Assign</button>
+</form>
+
+<h2>Drivers</h2>
+<table>
+  <thead><tr><th>Chipset</th><th>Kind</th><th>Modules</th><th>Available</th><th>Loaded</th></tr></thead>
+  <tbody>
+  {% for d in drivers %}
+    <tr>
+      <td>{{ d.label }}</td>
+      <td>{{ d.kind }}</td>
+      <td>{{ d.modules|join(", ") }}</td>
+      <td>{{ "Yes" if d.available else "No" }}</td>
+      <td>{{ "Yes" if d.loaded else "No" }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

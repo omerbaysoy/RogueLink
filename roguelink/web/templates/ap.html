@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Access Point</h1>
+
+<section class="card">
+  <p><strong>Running:</strong> {{ "Yes" if ap.running else "No" }}</p>
+  <p><strong>Interface:</strong> {{ ap.iface or "—" }}</p>
+  <p><strong>SSID:</strong> {{ ap.ssid or "—" }}</p>
+  <p><strong>Channel:</strong> {{ ap.channel or "—" }}</p>
+  <p><strong>Subnet:</strong> {{ ap.subnet or "—" }}</p>
+  <p><strong>Address:</strong> {{ ap.address or "—" }}</p>
+</section>
+
+<section class="card">
+  <h2>Start AP</h2>
+  <form method="post" action="/api/ap/start">
+    <label>Interface
+      <select name="iface" required>
+        {% for ad in adapters %}
+          {% if not ad.onboard %}
+          <option value="{{ ad.iface }}" {% if roles.ap == ad.iface %}selected{% endif %}>{{ ad.iface }} — {{ ad.chipset_label }}</option>
+          {% endif %}
+        {% endfor %}
+      </select>
+    </label>
+    <label>SSID <input name="ssid" value="{{ cfg.ap.ssid }}" required></label>
+    <label>PSK <input name="psk" type="password" minlength="8" required></label>
+    <label>Channel <input name="channel" type="number" value="{{ cfg.ap.channel }}"></label>
+    <label>Country <input name="country" value="{{ cfg.ap.country_code or cfg.general.country_code }}" maxlength="2"></label>
+    <button type="submit">Start AP</button>
+  </form>
+  <form method="post" action="/api/ap/stop">
+    <button type="submit">Stop AP</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Connected clients</h2>
+  <table>
+    <thead><tr><th>Hostname</th><th>IP</th><th>MAC</th><th>Lease expires</th></tr></thead>
+    <tbody>
+      {% for c in ap.clients %}
+      <tr><td>{{ c.hostname or "—" }}</td><td>{{ c.ip }}</td><td>{{ c.mac }}</td><td>{{ c.expires }}</td></tr>
+      {% else %}
+      <tr><td colspan="4">No clients yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

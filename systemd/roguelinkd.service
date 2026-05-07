@@ -1,0 +1,24 @@
+[Unit]
+Description=RogueLink router daemon (Rogue Network Tool)
+Documentation=https://github.com/
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/opt/roguelink/venv/bin/python -m roguelink.daemon
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Hardening (best-effort; this daemon needs root for nftables/hostapd/dnsmasq).
+ProtectSystem=full
+ProtectHome=true
+NoNewPrivileges=false
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

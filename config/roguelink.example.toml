@@ -1,0 +1,46 @@
+# Example RogueLink configuration. Copy this file to /etc/roguelink/roguelink.toml
+# during install (the installer does this for you) and edit values as needed.
+
+[general]
+host = "0.0.0.0"
+api_port = 8080
+country_code = "US"
+log_level = "INFO"
+
+[management]
+# The onboard Pi Wi-Fi (typically wlan0). Roleguard refuses to switch this
+# slot to a non-onboard adapter.
+iface = "wlan0"
+ssid = ""
+psk = ""
+static_ip = ""
+fallback_ap_ssid = "RogueLink-Setup"
+fallback_ap_psk = ""
+
+[wan]
+# Default WAN interface. Empty string asks RogueLink to auto-pick.
+iface = ""
+ssid = ""
+psk = ""
+
+[ap]
+iface = ""
+ssid = "RogueLink-AP"
+psk = ""
+channel = 6
+subnet = "10.42.0.0/24"
+address = "10.42.0.1"
+dhcp_start = "10.42.0.10"
+dhcp_end = "10.42.0.200"
+country_code = "US"
+
+[lan]
+iface = "eth0"
+subnet = "10.42.1.0/24"
+address = "10.42.1.1"
+dhcp_start = "10.42.1.10"
+dhcp_end = "10.42.1.200"
+enabled = false
+
+[auth]
+username = "admin"

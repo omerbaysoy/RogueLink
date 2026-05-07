@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+
+# Virtual envs / dev runtime state
+venv/
+.venv/
+env/
+.env
+.tox/
+.dev/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# RogueLink runtime artefacts (when developed in-place)
+*.log
+*.leases
+*.pid
+roguelink.toml
+auth.json
+state.json
+adapters.json
+initial_password.txt
+*.nft
+*_profile.json
+
+# External vendored references (kept on disk but not committed)
+external/
+
+# Claude Code local settings
+.claude/
+
+# Test/cache
+.pytest_cache/
+.coverage
+htmlcov/
+.cache/
