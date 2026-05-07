@@ -58,7 +58,7 @@ log "Creating Python virtualenv"
 python3 -m venv "${INSTALL_PREFIX}/venv"
 "${INSTALL_PREFIX}/venv/bin/pip" install --upgrade pip
 "${INSTALL_PREFIX}/venv/bin/pip" install \
-  fastapi "uvicorn[standard]" jinja2 typer rich httpx python-multipart tomli
+  fastapi "uvicorn[standard]" jinja2 typer rich httpx python-multipart tomli speedtest-cli
 
 log "Installing example config"
 if [[ ! -f "${ETC_DIR}/roguelink.toml" ]]; then
@@ -68,6 +68,8 @@ fi
 log "Installing CLI launcher to ${BIN_LINK}"
 cat > "${BIN_LINK}" <<EOF
 #!/usr/bin/env bash
+export PYTHONPATH="${INSTALL_PREFIX}\${PYTHONPATH:+:\$PYTHONPATH}"
+cd "${INSTALL_PREFIX}"
 exec "${INSTALL_PREFIX}/venv/bin/python" -m roguelink.cli "\$@"
 EOF
 chmod 0755 "${BIN_LINK}"
@@ -77,14 +79,13 @@ install -m 0644 "${REPO_DIR}/systemd/${SERVICE_NAME}" "${SERVICE_DST}"
 systemctl daemon-reload
 systemctl enable "${SERVICE_NAME}"
 
-log "Bootstrapping initial admin password"
-"${INSTALL_PREFIX}/venv/bin/python" - <<'PY'
+log "Bootstrapping default admin credentials"
+PYTHONPATH="${INSTALL_PREFIX}" "${INSTALL_PREFIX}/venv/bin/python" - <<'PY'
 from roguelink import auth, paths
 paths.ensure_dirs()
-created, password = auth.ensure_initial_password()
+created, username, password = auth.ensure_default_password()
 if created:
-    print(f"[roguelink-install] Initial dashboard credentials: admin / {password}")
-    print(f"[roguelink-install] Stored at {paths.INITIAL_PASSWORD_PATH} (root-only)")
+    print(f"[roguelink-install] Dashboard login: {username} / {password}")
 else:
     print("[roguelink-install] Auth already configured; keeping existing credentials.")
 PY
@@ -93,25 +94,30 @@ log "Starting ${SERVICE_NAME}"
 systemctl restart "${SERVICE_NAME}" || true
 
 log "Summary"
-"${INSTALL_PREFIX}/venv/bin/python" -m roguelink.cli status || true
+PYTHONPATH="${INSTALL_PREFIX}" "${INSTALL_PREFIX}/venv/bin/python" -m roguelink.cli status || true
 
 cat <<EOF
 
 ----------------------------------------------------------------
 RogueLink installation complete.
 
-Service:    sudo systemctl status roguelinkd.service
-CLI:        roguelink
-Dashboard:  see CLI banner above (http://<management-ip>:8080)
+Service:        sudo systemctl status roguelinkd.service
+CLI:            roguelink
+Dashboard:      see CLI banner above (http://<management-ip>:8080)
+Dashboard login: admin / roguelink
 
 Next steps:
-  - Configure WAN: roguelink wan scan --iface <iface>
-                   roguelink wan connect --iface <iface> --ssid <SSID> --psk <PSK>
-  - Start AP:      roguelink ap start --iface <iface> --ssid <SSID> --psk <PSK>
-  - Wired LAN:     roguelink lan start --iface eth0
-  - Pi 5 tuning:   sudo roguelink system apply-pi5  (then reboot)
-
-Initial password is at /etc/roguelink/initial_password.txt — change it with
-'sudo roguelink set-password' and remove the file.
+  - Change password (recommended):
+      sudo roguelink set-password
+    or via the dashboard: System -> Security.
+  - Configure WAN:
+      roguelink networks scan --iface <iface>
+      roguelink networks save --ssid <SSID> --psk <PSK> --note "..."
+      roguelink wan connect --iface <iface> --ssid <SSID> --psk <PSK>
+  - Start AP:    roguelink ap start --iface <iface> --ssid <SSID> --psk <PSK>
+  - Wired LAN:   roguelink lan start --iface eth0
+  - Pi 5 tuning: sudo roguelink system apply-pi5  (then reboot)
+  - Speed test:  roguelink speedtest
+  - Health:      roguelink health
 ----------------------------------------------------------------
 EOF

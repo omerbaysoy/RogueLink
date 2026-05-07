@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Networks</h1>
+
+<section class="card">
+  <h2>Scan</h2>
+  <form method="post" action="/api/networks/scan">
+    <label>Interface
+      <select name="iface">
+        {% for ad in adapters %}
+        <option value="{{ ad.iface }}" {% if scan_iface_default == ad.iface %}selected{% endif %}>{{ ad.iface }} — {{ ad.chipset_label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Scan now</button>
+  </form>
+  <p class="muted">Latest scan and observations are stored in the networks database.</p>
+</section>
+
+<section class="card">
+  <h2>Nearby networks</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>SSID</th><th>Signal dBm</th><th>Quality</th><th>Channel</th>
+        <th>Band</th><th>Security</th><th>BSSID</th><th>Iface</th><th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for n in recent %}
+      <tr>
+        <td>{{ n.ssid }}</td>
+        <td>{{ "%.0f"|format(n.latest_signal) if n.latest_signal is not none else "—" }}</td>
+        <td>{{ n.quality or "—" }}</td>
+        <td>{{ n.channel or "—" }}</td>
+        <td>{{ n.band or "—" }}</td>
+        <td>{{ n.security or "—" }}</td>
+        <td>{{ n.bssid }}</td>
+        <td>{{ n.iface }}</td>
+        <td>
+          <form method="post" action="/api/networks/saved" class="inline">
+            <input type="hidden" name="ssid" value="{{ n.ssid }}">
+            <input type="password" name="psk" placeholder="PSK" style="width:120px">
+            <input type="text" name="note" placeholder="Note" style="width:120px">
+            <button type="submit">Save</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="9">No observations yet. Run a scan above.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>Save a network</h2>
+  <form method="post" action="/api/networks/saved">
+    <label>SSID <input name="ssid" required></label>
+    <label>PSK <input type="password" name="psk"></label>
+    <label>Note <input name="note"></label>
+    <label>Preferred iface <input name="preferred_iface"></label>
+    <button type="submit">Save</button>
+  </form>
+</section>
+
+<h2>Saved networks</h2>
+{% for entry in saved %}
+{% set s = entry.saved %}
+<details class="card">
+  <summary>
+    <strong>{{ s.ssid }}</strong>
+    {% if entry.latest_signal is not none %}— {{ "%.0f"|format(entry.latest_signal) }} dBm{% endif %}
+    {% if entry.observations and entry.observations[0].quality %} · {{ entry.observations[0].quality }}{% endif %}
+    {% if s.last_connection_status %} · last: {{ s.last_connection_status }}{% endif %}
+  </summary>
+
+  <div class="grid">
+    <div>
+      <p><strong>ID:</strong> {{ s.id }}</p>
+      <p><strong>Note:</strong> {{ s.note or "—" }}</p>
+      <p><strong>Preferred iface:</strong> {{ s.preferred_iface or "—" }}</p>
+      <p><strong>Auto-connect:</strong> {{ "yes" if s.auto_connect else "no" }}</p>
+      <p><strong>Enabled:</strong> {{ "yes" if s.enabled else "no" }}</p>
+      <p><strong>Best signal:</strong> {{ "%.0f"|format(entry.best_signal) if entry.best_signal is not none and entry.best_signal != -999 else "—" }} dBm</p>
+      <p><strong>Latest signal:</strong> {{ "%.0f"|format(entry.latest_signal) if entry.latest_signal is not none else "—" }} dBm</p>
+      <p><strong>Last seen:</strong> {{ entry.last_seen or "—" }}</p>
+      <p><strong>Last connected:</strong> {{ s.last_connected_at or "—" }}</p>
+    </div>
+
+    <div>
+      <h3>Connect</h3>
+      <form method="post" action="/api/networks/saved/{{ s.id }}/connect">
+        <label>Iface
+          <select name="iface">
+            <option value="">(use preferred)</option>
+            {% for ad in adapters %}
+            <option value="{{ ad.iface }}">{{ ad.iface }} — {{ ad.chipset_label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button type="submit">Connect</button>
+      </form>
+      <h3>Edit</h3>
+      <form method="post" action="/api/networks/saved/{{ s.id }}/update">
+        <label>Note <input name="note" value="{{ s.note }}"></label>
+        <label>PSK <input type="password" name="psk" placeholder="leave empty to keep"></label>
+        <label>Preferred iface <input name="preferred_iface" value="{{ s.preferred_iface }}"></label>
+        <button type="submit">Update</button>
+      </form>
+      <form method="post" action="/api/networks/saved/{{ s.id }}/delete" onsubmit="return confirm('Delete saved network {{ s.ssid }}?')">
+        <button type="submit">Delete</button>
+      </form>
+    </div>
+  </div>
+
+  <h3>Known BSSIDs / observations</h3>
+  <table>
+    <thead><tr><th>BSSID</th><th>Signal</th><th>Quality</th><th>Channel</th><th>Band</th><th>Security</th><th>Last seen</th><th>Seen #</th></tr></thead>
+    <tbody>
+      {% for o in entry.observations %}
+      <tr>
+        <td>{{ o.bssid }}</td>
+        <td>{{ "%.0f"|format(o.latest_signal) if o.latest_signal is not none else "—" }}</td>
+        <td>{{ o.quality or "—" }}</td>
+        <td>{{ o.channel or "—" }}</td>
+        <td>{{ o.band or "—" }}</td>
+        <td>{{ o.security or "—" }}</td>
+        <td>{{ o.last_seen }}</td>
+        <td>{{ o.seen_count }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8">No observations yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>Connection attempts</h3>
+  <table>
+    <thead><tr><th>Started</th><th>Iface</th><th>Success</th><th>IP</th><th>Gateway</th><th>Signal</th><th>Error</th></tr></thead>
+    <tbody>
+      {% for a in entry.attempts %}
+      <tr>
+        <td>{{ a.started_at }}</td>
+        <td>{{ a.iface }}</td>
+        <td>{{ "yes" if a.success else "no" }}</td>
+        <td>{{ a.assigned_ip or "—" }}</td>
+        <td>{{ a.gateway or "—" }}</td>
+        <td>{{ "%.0f"|format(a.signal_dbm) if a.signal_dbm is not none else "—" }}</td>
+        <td>{{ a.error or "—" }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7">No attempts yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</details>
+{% else %}
+<p class="muted">No saved networks yet. Save one with the form above.</p>
+{% endfor %}
+{% endblock %}

@@ -15,7 +15,6 @@ CONFIG_PATH = os.path.join(ETC_DIR, "roguelink.toml")
 STATE_PATH = os.path.join(LIB_DIR, "state.json")
 ADAPTER_MAP_PATH = os.path.join(LIB_DIR, "adapters.json")
 AUTH_PATH = os.path.join(ETC_DIR, "auth.json")
-INITIAL_PASSWORD_PATH = os.path.join(ETC_DIR, "initial_password.txt")
 
 WAN_PROFILE_PATH = os.path.join(LIB_DIR, "wan_profile.json")
 AP_PROFILE_PATH = os.path.join(LIB_DIR, "ap_profile.json")
@@ -40,6 +39,14 @@ WAN_LOG = os.path.join(LOG_DIR, "wan.log")
 AP_LOG = os.path.join(LOG_DIR, "ap.log")
 LAN_LOG = os.path.join(LOG_DIR, "lan.log")
 FIREWALL_LOG = os.path.join(LOG_DIR, "firewall.log")
+NETWORKS_LOG = os.path.join(LOG_DIR, "networks.log")
+SPEEDTEST_LOG = os.path.join(LOG_DIR, "speedtest.log")
+HEALTH_LOG = os.path.join(LOG_DIR, "health.log")
+
+NETWORKS_DB = os.path.join(LIB_DIR, "networks.db")
+SPEEDTEST_LAST = os.path.join(LIB_DIR, "speedtest_last.json")
+HEALTH_LAST = os.path.join(LIB_DIR, "health_last.json")
+FAN_PROFILE_PATH = os.path.join(LIB_DIR, "fan_profile.json")
 
 BOOT_CONFIG_CANDIDATES = ("/boot/firmware/config.txt", "/boot/config.txt")
 

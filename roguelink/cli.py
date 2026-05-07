@@ -9,9 +9,7 @@ fresh install can still bootstrap the device.
 from __future__ import annotations
 
 import json
-import os
-import sys
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import typer
 from rich.console import Console
@@ -19,18 +17,23 @@ from rich.table import Table
 from rich.text import Text
 
 from . import __subtitle__, __title__, __version__
-from . import auth, config as roguelink_config, paths, state
+from . import auth, config as roguelink_config, state
 from .services import (
+    adapter_control,
     adapter_manager,
     ap_manager,
     driver_manager,
+    fan_manager,
     firewall_manager,
+    health_manager,
     lan_manager,
     logs as logs_service,
     management_manager,
     metrics,
+    speedtest_manager,
     system_manager,
     wan_manager,
+    wifi_scan_manager,
 )
 
 
@@ -40,12 +43,22 @@ wan_app = typer.Typer(help="WAN uplink controls")
 ap_app = typer.Typer(help="AP mode controls")
 lan_app = typer.Typer(help="Wired LAN (eth0) controls")
 sys_app = typer.Typer(help="System helpers (Pi 5 setup, status)")
+networks_app = typer.Typer(help="Wi-Fi scan and saved network management")
+adapter_app = typer.Typer(help="Adapter power/reset controls (singular)")
+speedtest_app = typer.Typer(help="Internet speed tests", invoke_without_command=True)
+health_app = typer.Typer(help="Connection health checks", invoke_without_command=True)
+fan_app = typer.Typer(help="Pi 5 fan profile control")
 
 app.add_typer(mgmt_app, name="mgmt")
 app.add_typer(wan_app, name="wan")
 app.add_typer(ap_app, name="ap")
 app.add_typer(lan_app, name="lan")
 app.add_typer(sys_app, name="system")
+app.add_typer(networks_app, name="networks")
+app.add_typer(adapter_app, name="adapter")
+app.add_typer(speedtest_app, name="speedtest")
+app.add_typer(health_app, name="health")
+app.add_typer(fan_app, name="fan")
 
 console = Console()
 
@@ -159,12 +172,10 @@ def dashboard() -> None:
     port = cfg.get("general", {}).get("api_port", 8080)
     url = management_manager.dashboard_url(port)
     console.print(f"Dashboard URL: [bold]{url}[/bold]")
-    if os.path.exists(paths.INITIAL_PASSWORD_PATH):
-        console.print(
-            f"Initial credentials are stored at [cyan]{paths.INITIAL_PASSWORD_PATH}[/cyan] (root-only)."
-        )
-    else:
-        console.print("Login: admin / (your configured password)")
+    console.print(
+        "Default login: [cyan]admin[/cyan] / [cyan]roguelink[/cyan]  "
+        "(change with [bold]roguelink set-password[/bold])"
+    )
 
 
 @app.command()
@@ -390,7 +401,6 @@ def set_password(
     password: str = typer.Option(..., "--password", prompt=True, hide_input=True, confirmation_prompt=True),
 ) -> None:
     auth.set_password(username, password)
-    auth.clear_initial_password_file()
     console.print("[green]Password updated.[/green]")
 
 
@@ -400,6 +410,335 @@ def daemon() -> None:
     from . import daemon as daemon_module
 
     raise typer.Exit(daemon_module.main())
+
+
+# ---------------------------------------------------------------------------
+# networks
+# ---------------------------------------------------------------------------
+
+
+def _scan_table(networks):
+    table = Table(title="Wi-Fi scan")
+    for col in ("SSID", "BSSID", "Signal dBm", "Quality", "Channel", "Band", "Security", "Interface"):
+        table.add_column(col)
+    for n in networks:
+        signal = n.get("signal_dbm")
+        table.add_row(
+            n.get("ssid") or "",
+            n.get("bssid") or "",
+            f"{signal:.0f}" if signal is not None else "—",
+            n.get("quality") or "—",
+            str(n.get("channel") or "—"),
+            n.get("band") or "—",
+            n.get("security") or "—",
+            n.get("iface") or "—",
+        )
+    return table
+
+
+@networks_app.command("scan")
+def networks_scan(
+    iface: str = typer.Option("", "--iface"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Scan nearby Wi-Fi networks and persist observations."""
+    target = iface
+    if not target:
+        roles = state.load_adapter_map() or {}
+        target = roles.get("wan") or roles.get("management") or ""
+    if not target:
+        console.print("[red]No interface to scan; pass --iface or assign WAN role.[/red]")
+        raise typer.Exit(2)
+    networks = wifi_scan_manager.scan(target)
+    if json_output:
+        console.print(json.dumps(networks, indent=2, default=str))
+        return
+    console.print(_scan_table(networks))
+
+
+@networks_app.command("list")
+def networks_list() -> None:
+    """List most recent observations across all SSIDs."""
+    history = wifi_scan_manager.history(limit=200)
+    table = Table(title="Recent Wi-Fi observations")
+    for col in ("SSID", "BSSID", "Signal", "Quality", "Channel", "Band", "Security", "Last seen"):
+        table.add_column(col)
+    for h in history:
+        signal = h.get("latest_signal")
+        table.add_row(
+            h.get("ssid") or "",
+            h.get("bssid") or "",
+            f"{signal:.0f}" if signal is not None else "—",
+            h.get("quality") or "—",
+            str(h.get("channel") or "—"),
+            h.get("band") or "—",
+            h.get("security") or "—",
+            str(h.get("last_seen") or "—"),
+        )
+    console.print(table)
+
+
+@networks_app.command("saved")
+def networks_saved() -> None:
+    """List saved networks."""
+    rows = wifi_scan_manager.list_saved()
+    table = Table(title="Saved networks")
+    for col in ("ID", "SSID", "Note", "Last seen", "Last connected", "Status", "Enabled"):
+        table.add_column(col)
+    for r in rows:
+        table.add_row(
+            str(r.get("id")),
+            r.get("ssid") or "",
+            r.get("note") or "",
+            str(r.get("updated_at") or "—"),
+            str(r.get("last_connected_at") or "—"),
+            r.get("last_connection_status") or "—",
+            "yes" if r.get("enabled") else "no",
+        )
+    console.print(table)
+
+
+@networks_app.command("show")
+def networks_show(network_id: int) -> None:
+    """Show a saved network with observations and history."""
+    saved = wifi_scan_manager.get_saved(network_id)
+    if not saved:
+        console.print(f"[red]Saved network {network_id} not found.[/red]")
+        raise typer.Exit(2)
+    console.print(json.dumps(saved, indent=2, default=str))
+    console.print("\nObservations:")
+    console.print(json.dumps(wifi_scan_manager.observations_for(network_id), indent=2, default=str))
+    console.print("\nConnection attempts:")
+    console.print(
+        json.dumps(wifi_scan_manager.connection_attempts(network_id=network_id), indent=2, default=str)
+    )
+
+
+@networks_app.command("save")
+def networks_save(
+    ssid: str = typer.Option(..., "--ssid"),
+    psk: str = typer.Option("", "--psk"),
+    note: str = typer.Option("", "--note"),
+    iface: str = typer.Option("", "--iface", help="Preferred interface for WAN connect"),
+) -> None:
+    """Save a Wi-Fi network with PSK and note."""
+    res = wifi_scan_manager.save_network(ssid, psk, note, iface)
+    console.print(json.dumps(res, indent=2))
+
+
+@networks_app.command("update")
+def networks_update(
+    network_id: int,
+    ssid: str = typer.Option("", "--ssid"),
+    psk: str = typer.Option("", "--psk"),
+    note: str = typer.Option("", "--note"),
+    iface: str = typer.Option("", "--iface"),
+) -> None:
+    """Update a saved network."""
+    kwargs: Dict[str, Any] = {}
+    if ssid:
+        kwargs["ssid"] = ssid
+    if psk:
+        kwargs["psk"] = psk
+    if note:
+        kwargs["note"] = note
+    if iface:
+        kwargs["preferred_iface"] = iface
+    res = wifi_scan_manager.update_saved(network_id, **kwargs)
+    console.print(json.dumps(res, indent=2))
+
+
+@networks_app.command("delete")
+def networks_delete(network_id: int) -> None:
+    res = wifi_scan_manager.delete_saved(network_id)
+    console.print(json.dumps(res, indent=2))
+
+
+@networks_app.command("connect")
+def networks_connect(network_id: int, iface: str = typer.Option("", "--iface")) -> None:
+    """Connect to a saved network. Optional --iface overrides preferred_iface."""
+    res = wifi_scan_manager.connect_saved(network_id, iface or None)
+    _reapply_firewall()
+    console.print(json.dumps(res, indent=2, default=str))
+
+
+@networks_app.command("history")
+def networks_history(limit: int = 100) -> None:
+    """Show recent Wi-Fi observations."""
+    rows = wifi_scan_manager.history(limit=limit)
+    console.print(json.dumps(rows, indent=2, default=str))
+
+
+@networks_app.command("observations")
+def networks_observations(network_id: int) -> None:
+    rows = wifi_scan_manager.observations_for(network_id)
+    console.print(json.dumps(rows, indent=2, default=str))
+
+
+# ---------------------------------------------------------------------------
+# speedtest
+# ---------------------------------------------------------------------------
+
+
+@speedtest_app.callback(invoke_without_command=True)
+def speedtest_default(
+    ctx: typer.Context,
+    iface: str = typer.Option("", "--iface"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Run a speed test (default action when no subcommand given)."""
+    if ctx.invoked_subcommand is not None:
+        return
+    res = speedtest_manager.run_test(iface or None)
+    if json_output:
+        console.print(json.dumps(res, indent=2, default=str))
+        return
+    if res.get("ok"):
+        console.print(
+            f"[green]Speed test:[/green] "
+            f"down=[bold]{res.get('download_mbps')}[/bold] Mbps, "
+            f"up=[bold]{res.get('upload_mbps')}[/bold] Mbps, "
+            f"ping=[bold]{res.get('ping_ms')}[/bold] ms "
+            f"({res.get('server_name') or '—'})"
+        )
+    else:
+        console.print(f"[red]Speed test failed:[/red] {res.get('error')}")
+
+
+@speedtest_app.command("last")
+def speedtest_last() -> None:
+    """Show the last speed test result."""
+    last = speedtest_manager.last_result()
+    if not last:
+        console.print("[dim]No speed test result on record.[/dim]")
+        return
+    console.print(json.dumps(last, indent=2, default=str))
+
+
+# ---------------------------------------------------------------------------
+# health
+# ---------------------------------------------------------------------------
+
+
+@health_app.callback(invoke_without_command=True)
+def health_default(
+    ctx: typer.Context,
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Run a one-shot connection health check."""
+    if ctx.invoked_subcommand is not None:
+        return
+    res = health_manager.check()
+    if json_output:
+        console.print(json.dumps(res, indent=2, default=str))
+        return
+    summary = res.get("summary", {})
+    color = {
+        "excellent": "green",
+        "good": "green",
+        "weak": "yellow",
+        "unstable": "yellow",
+        "offline": "red",
+    }.get(res.get("status", ""), "white")
+    console.print(f"[{color}]Health:[/{color}] {res.get('status')}")
+    console.print(
+        f"  rtt={summary.get('rtt_ms')} ms, loss={summary.get('packet_loss_pct')}%, "
+        f"gw={summary.get('gateway')}, iface={summary.get('wan_iface')}, "
+        f"signal={summary.get('signal_dbm')} dBm"
+    )
+
+
+@health_app.command("watch")
+def health_watch(interval: int = 10, count: int = 0) -> None:
+    """Repeat health checks. count=0 means run forever."""
+    seen = 0
+    while count == 0 or seen < count:
+        res = health_manager.check()
+        summary = res.get("summary", {})
+        console.print(
+            f"[{res.get('status')}] rtt={summary.get('rtt_ms')} loss={summary.get('packet_loss_pct')}% "
+            f"signal={summary.get('signal_dbm')}"
+        )
+        seen += 1
+        if count and seen >= count:
+            break
+        import time as _t
+        _t.sleep(interval)
+
+
+# ---------------------------------------------------------------------------
+# adapter (singular) — power/reset controls
+# ---------------------------------------------------------------------------
+
+
+@adapter_app.command("power")
+def adapter_power(iface: str) -> None:
+    """Show TX power, power-save, and capability status for an adapter."""
+    console.print(json.dumps(adapter_control.status_for(iface), indent=2))
+
+
+@adapter_app.command("txpower")
+def adapter_txpower(iface: str, dbm: float = typer.Option(..., "--dbm")) -> None:
+    console.print(json.dumps(adapter_control.set_txpower(iface, dbm), indent=2))
+
+
+@adapter_app.command("txpower-auto")
+def adapter_txpower_auto(iface: str) -> None:
+    console.print(json.dumps(adapter_control.set_txpower_auto(iface), indent=2))
+
+
+@adapter_app.command("powersave")
+def adapter_powersave(iface: str, mode: str = typer.Argument(..., help="on|off")) -> None:
+    if mode not in ("on", "off"):
+        console.print("[red]mode must be 'on' or 'off'[/red]")
+        raise typer.Exit(2)
+    console.print(json.dumps(adapter_control.set_powersave(iface, mode == "on"), indent=2))
+
+
+@adapter_app.command("reset")
+def adapter_reset(iface: str) -> None:
+    """Soft-reset the adapter (ip link down/up)."""
+    console.print(json.dumps(adapter_control.soft_reset(iface), indent=2))
+
+
+@adapter_app.command("reset-usb")
+def adapter_reset_usb(iface: str) -> None:
+    """Re-authorize the underlying USB device when safely detected."""
+    console.print(json.dumps(adapter_control.usb_reset(iface), indent=2))
+
+
+# ---------------------------------------------------------------------------
+# fan
+# ---------------------------------------------------------------------------
+
+
+@fan_app.command("status")
+def fan_status() -> None:
+    console.print(json.dumps(fan_manager.status(), indent=2, default=str))
+
+
+@fan_app.command("set")
+def fan_set(
+    profile: str = typer.Argument(..., help="quiet|balanced|performance|max|custom"),
+    t0: int = typer.Option(0, "--t0"),
+    s0: int = typer.Option(0, "--s0"),
+    t1: int = typer.Option(0, "--t1"),
+    s1: int = typer.Option(0, "--s1"),
+    t2: int = typer.Option(0, "--t2"),
+    s2: int = typer.Option(0, "--s2"),
+    t3: int = typer.Option(0, "--t3"),
+    s3: int = typer.Option(0, "--s3"),
+) -> None:
+    custom = None
+    if profile == "custom":
+        custom = [
+            {"temp": t0, "speed": s0},
+            {"temp": t1, "speed": s1},
+            {"temp": t2, "speed": s2},
+            {"temp": t3, "speed": s3},
+        ]
+    res = fan_manager.apply_profile(profile, custom)
+    console.print(json.dumps(res, indent=2, default=str))
 
 
 def _reapply_firewall() -> Dict[str, Any]:

@@ -13,6 +13,9 @@ LOG_FILES: Dict[str, str] = {
     "ap": paths.AP_LOG,
     "lan": paths.LAN_LOG,
     "firewall": paths.FIREWALL_LOG,
+    "networks": paths.NETWORKS_LOG,
+    "speedtest": paths.SPEEDTEST_LOG,
+    "health": paths.HEALTH_LOG,
 }
 
 

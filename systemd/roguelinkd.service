@@ -8,6 +8,8 @@ Wants=network.target
 Type=simple
 User=root
 Group=root
+WorkingDirectory=/opt/roguelink
+Environment=PYTHONPATH=/opt/roguelink
 ExecStart=/opt/roguelink/venv/bin/python -m roguelink.daemon
 Restart=on-failure
 RestartSec=5

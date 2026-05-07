@@ -65,6 +65,43 @@
   <button type="submit">Assign</button>
 </form>
 
+<h2>Adapter controls</h2>
+{% for ad in adapters %}
+{% set ctl = controls.get(ad.iface, {}) %}
+<details class="card">
+  <summary><strong>{{ ad.iface }}</strong> — {{ ad.chipset_label }} (TX {{ ctl.txpower_dbm or "?" }} dBm, PS {{ ctl.powersave or "?" }})</summary>
+  <p>
+    Phy: {{ ctl.phy or "—" }} ·
+    USB reset path: {{ ctl.usb_reset_path or "—" }} ·
+    Soft reset: {{ "supported" if ctl.supports_soft_reset else "no" }} ·
+    USB reset: {{ "supported" if ctl.supports_usb_reset else "unsupported" }}
+  </p>
+  <form method="post" action="/api/adapters/{{ ad.iface }}/txpower" class="inline">
+    <label>TX power dBm <input type="number" step="0.5" name="dbm" value="{{ ctl.txpower_dbm or 20 }}"></label>
+    <button type="submit">Set TX power</button>
+  </form>
+  <form method="post" action="/api/adapters/{{ ad.iface }}/txpower-auto" class="inline">
+    <button type="submit">Auto TX power</button>
+  </form>
+  <form method="post" action="/api/adapters/{{ ad.iface }}/powersave" class="inline">
+    <input type="hidden" name="on" value="true">
+    <button type="submit">Power save ON</button>
+  </form>
+  <form method="post" action="/api/adapters/{{ ad.iface }}/powersave" class="inline">
+    <input type="hidden" name="on" value="false">
+    <button type="submit">Power save OFF</button>
+  </form>
+  <form method="post" action="/api/adapters/{{ ad.iface }}/reset" class="inline">
+    <button type="submit">Soft reset</button>
+  </form>
+  {% if ctl.supports_usb_reset %}
+  <form method="post" action="/api/adapters/{{ ad.iface }}/reset-usb" class="inline">
+    <button type="submit">USB reset</button>
+  </form>
+  {% endif %}
+</details>
+{% endfor %}
+
 <h2>Drivers</h2>
 <table>
   <thead><tr><th>Chipset</th><th>Kind</th><th>Modules</th><th>Available</th><th>Loaded</th></tr></thead>

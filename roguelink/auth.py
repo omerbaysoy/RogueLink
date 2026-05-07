@@ -1,19 +1,22 @@
 """Lightweight password auth for the dashboard.
 
-Stores a salted SHA-256 hash on disk. The plaintext password is never stored
-after the initial generation step.
+Default credentials are ``admin`` / ``roguelink`` and are written on first
+install if no auth file exists. The operator can change them from the
+dashboard System page or via ``roguelink set-password``.
 """
 
 import hashlib
-import os
 import secrets
-from typing import Optional, Tuple
+from typing import Tuple
 
 from . import paths
-from .utils import load_json, save_json, write_text
+from .utils import load_json, save_json
 
 
 PBKDF_ITERATIONS = 200_000
+
+DEFAULT_USERNAME = "admin"
+DEFAULT_PASSWORD = "roguelink"
 
 
 def _hash(password: str, salt: str) -> str:
@@ -61,26 +64,24 @@ def verify(username: str, password: str) -> bool:
     return secrets.compare_digest(expected, candidate)
 
 
-def ensure_initial_password(username: str = "admin") -> Tuple[bool, Optional[str]]:
-    """If no password is configured, generate one. Returns (created, password)."""
+def ensure_default_password() -> Tuple[bool, str, str]:
+    """Create default admin/roguelink credentials if no auth file exists.
+
+    Returns (created, username, password). When ``created`` is False the
+    existing credentials were left untouched.
+    """
     if is_configured():
-        return False, None
-    password = secrets.token_urlsafe(12)
-    set_password(username, password)
-    write_text(
-        paths.INITIAL_PASSWORD_PATH,
-        f"# RogueLink initial admin credentials\n"
-        f"# Delete this file after you change the password.\n"
-        f"username={username}\n"
-        f"password={password}\n",
-        mode=0o600,
-    )
-    return True, password
+        data = load()
+        return False, data.get("username", DEFAULT_USERNAME), ""
+    set_password(DEFAULT_USERNAME, DEFAULT_PASSWORD)
+    return True, DEFAULT_USERNAME, DEFAULT_PASSWORD
 
 
-def clear_initial_password_file() -> None:
-    if os.path.exists(paths.INITIAL_PASSWORD_PATH):
-        try:
-            os.remove(paths.INITIAL_PASSWORD_PATH)
-        except OSError:
-            pass
+def change_password(username: str, current: str, new_password: str) -> Tuple[bool, str]:
+    """Change password after verifying ``current``. Returns (ok, message)."""
+    if not new_password or len(new_password) < 4:
+        return False, "new password must be at least 4 characters"
+    if not verify(username, current):
+        return False, "current password is incorrect"
+    set_password(username, new_password)
+    return True, "password updated"

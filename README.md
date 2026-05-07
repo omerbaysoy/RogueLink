@@ -79,40 +79,100 @@ journalctl -u roguelinkd -f
 ## CLI
 
 ```text
-roguelink                         # banner: mgmt IP, dashboard URL, WAN/AP/LAN status, temperature
+roguelink                                  # banner: mgmt IP, dashboard URL, WAN/AP/LAN status, temperature
 roguelink status
 roguelink dashboard
-roguelink adapters
+roguelink adapters                         # list adapters and roles
 roguelink mgmt status
 roguelink mgmt connect --ssid "..." --psk "..."
+
+# WAN
 roguelink wan scan --iface wlan1
 roguelink wan connect --iface wlan1 --ssid "..." --psk "..."
 roguelink wan disconnect
+
+# AP / LAN
 roguelink ap start  --iface wlan2 --ssid "..." --psk "..."
 roguelink ap stop
-roguelink lan status
-roguelink lan start --iface eth0
-roguelink lan stop
+roguelink lan {status|start --iface eth0|stop}
+
+# Networks (Wi-Fi scan + saved profiles)
+roguelink networks scan [--iface <iface>] [--json]
+roguelink networks list                    # all observations across SSIDs
+roguelink networks saved                   # saved networks summary
+roguelink networks show <id>
+roguelink networks save --ssid "..." --psk "..." --note "..." [--iface <iface>]
+roguelink networks update <id> [--ssid ...] [--psk ...] [--note ...] [--iface ...]
+roguelink networks delete <id>
+roguelink networks connect <id> [--iface <iface>]
+roguelink networks history
+roguelink networks observations <id>
+
+# Speed test
+roguelink speedtest [--iface <iface>] [--json]
+roguelink speedtest last
+
+# Health
+roguelink health [--json]
+roguelink health watch                     # repeated checks
+
+# Adapter power/reset (singular form)
+roguelink adapter power <iface>
+roguelink adapter txpower <iface> --dbm 20
+roguelink adapter txpower-auto <iface>
+roguelink adapter powersave <iface> on|off
+roguelink adapter reset <iface>            # ip link down/up
+roguelink adapter reset-usb <iface>        # re-authorize USB device
+
+# Fan profiles (Pi 5)
+roguelink fan status
+roguelink fan set quiet|balanced|performance|max
+roguelink fan set custom --t0 50 --s0 75 --t1 60 --s1 125 --t2 67 --s2 192 --t3 75 --s3 255
+
+# Misc
 roguelink clients
-roguelink logs [name]
+roguelink logs [name]                      # daemon|setup|wan|ap|lan|firewall|networks|speedtest|health
 roguelink firewall {status|reapply|flush}
 roguelink set-password
-roguelink system apply-pi5         # apply Pi 5 boot config + zram (then reboot)
+roguelink system apply-pi5                 # apply Pi 5 boot config + zram (then reboot)
 roguelink system install-driver mt7612u
 ```
 
 ## Dashboard
 
 The dashboard is served by the daemon on the management interface
-(`http://<management-ip>:8080`). Pages: Overview, Adapters, Management,
-WAN, AP, LAN, System, Logs.
+(`http://<management-ip>:8080`). Pages: **Overview, Adapters, Networks,
+Management, WAN, AP, LAN, System, Logs**.
 
 - **Authentication:** HTTP Basic. Loopback (`127.0.0.1`) requests are
   allowed without auth so the local CLI can talk to the API.
-- **Initial credentials:** generated at install time; printed to stdout and
-  saved to `/etc/roguelink/initial_password.txt` (root-only).
-- **Change password:** `sudo roguelink set-password`. The initial password
-  file is removed automatically after a successful change.
+- **Default credentials:** `admin` / `roguelink`. These are written by the
+  installer if `/etc/roguelink/auth.json` does not yet exist.
+- **Change password:**
+  - From the dashboard: **System → Security**.
+  - From the CLI: `sudo roguelink set-password`.
+- **Networks page:** scan adapters, save networks (SSID/PSK/note),
+  collapse/expand each saved network for full observation/connection
+  history, and connect from a stored profile.
+- **WAN page:** scan + connect, "Use saved network" dropdown, and a
+  Connection Health card driven by `health_manager`.
+- **System page:** Pi 5 fan profile control (quiet/balanced/performance/max
+  /custom), speed test runner, password change form, firewall status,
+  drivers, zram/temperature.
+- **Overview page:** Network Health card, Speed Test card, Nearby/Saved
+  Networks card, plus the existing platform/firewall summary.
+- **Logs page:** daemon, setup, wan, ap, lan, firewall, networks,
+  speedtest, health.
+
+### Signal strength reference
+
+| Signal       | Quality   |
+|--------------|-----------|
+| ≥ −50 dBm    | excellent |
+| −51..−60 dBm | good      |
+| −61..−70 dBm | fair      |
+| −71..−80 dBm | weak      |
+| < −80 dBm    | poor      |
 
 ## Default network topology
 
@@ -190,19 +250,38 @@ model are adapted directly from Ghostlink-Mini (`src/core/network.py`,
 | Path | Purpose |
 |------|---------|
 | `/etc/roguelink/roguelink.toml` | Operator-editable config |
-| `/etc/roguelink/auth.json`      | Salted password hash |
-| `/etc/roguelink/initial_password.txt` | One-time install password |
-| `/var/lib/roguelink/`           | Adapter map, AP/WAN/LAN profiles, leases |
-| `/var/log/roguelink/`           | Daemon, WAN, AP, LAN, firewall logs |
+| `/etc/roguelink/auth.json`      | Salted password hash (default admin / roguelink) |
+| `/var/lib/roguelink/`           | Adapter map, AP/WAN/LAN profiles, leases, runtime state |
+| `/var/lib/roguelink/networks.db`| Saved networks + observation/attempt history (SQLite) |
+| `/var/lib/roguelink/speedtest_last.json` | Last speed test result |
+| `/var/lib/roguelink/health_last.json`    | Last health check result |
+| `/var/lib/roguelink/fan_profile.json`    | Active fan profile metadata |
+| `/var/log/roguelink/`           | daemon, wan, ap, lan, firewall, networks, speedtest, health |
 | `/run/roguelink/`               | hostapd/dnsmasq/wpa_supplicant configs and pidfiles |
-| `/etc/systemd/system/roguelinkd.service` | systemd unit |
+| `/etc/systemd/system/roguelinkd.service` | systemd unit (sets WorkingDirectory + PYTHONPATH) |
 | `/opt/roguelink/`               | Installed package and venv |
+| `/usr/local/bin/roguelink`      | CLI launcher (sets PYTHONPATH=/opt/roguelink) |
 
 ## Known limitations
 
-- **Hardware-only checks** (driver build, hostapd start, dnsmasq DHCP) can
-  only be validated on a real Pi. Local syntax/import checks pass on any
-  Python 3.11+ host.
+- **Hardware-only checks** (driver build, hostapd start, dnsmasq DHCP,
+  scan, TX power set, USB reset) can only be validated on a real Pi.
+  Local syntax/import checks pass on any Python 3.11+ host.
+- **TX power control** depends on the driver and the regulatory domain.
+  Some chipsets reject `iw set txpower fixed`; the response is captured
+  and surfaced in the API/CLI output verbatim.
+- **USB reset** depends on safe USB-path detection (sysfs `authorized`
+  file). The Adapters page only renders the USB reset button when the
+  path was found.
+- **Speed test** depends on internet access plus the ability to reach the
+  speedtest.net server pool. The dashboard records the failure reason
+  when servers are unreachable.
+- **Wi-Fi scan** depends on adapter/driver state. Some adapters refuse
+  scans while associated to an AP; bring the interface down or use a
+  different adapter if scans return empty.
+- **Fan profile changes** modify `config.txt`. The block is rewritten
+  cleanly, but the firmware only applies the new thresholds after a
+  reboot. The dashboard surfaces a "reboot required" indicator.
 - The dashboard uses HTTP Basic. For production-grade access, terminate
   TLS with a reverse proxy or enable a stronger auth layer.
 - nftables is mandatory; iptables-only systems are not supported.

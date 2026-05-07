@@ -6,10 +6,13 @@ from . import (
     adapter_manager,
     ap_manager,
     firewall_manager,
+    health_manager,
     lan_manager,
     management_manager,
+    speedtest_manager,
     system_manager,
     wan_manager,
+    wifi_scan_manager,
 )
 from .. import config as roguelink_config
 
@@ -36,4 +39,7 @@ def overview() -> Dict:
         "dashboard_url": management_manager.dashboard_url(api_port),
         "api_port": api_port,
         "internet": internet_status,
+        "networks": wifi_scan_manager.overview_summary(),
+        "speedtest": speedtest_manager.last_result(),
+        "health": health_manager.last(),
     }

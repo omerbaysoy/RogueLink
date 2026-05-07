@@ -157,3 +157,39 @@ pre {
   border-top: 1px solid var(--border);
   margin-top: 24px;
 }
+
+.muted { color: var(--muted); }
+.warn { color: var(--warn); }
+
+details.card {
+  padding: 0;
+}
+details.card > summary {
+  cursor: pointer;
+  padding: 12px 16px;
+  list-style: none;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono);
+  letter-spacing: 0.5px;
+}
+details.card[open] > summary {
+  background: var(--panel-2);
+  color: var(--accent);
+}
+details.card > *:not(summary) {
+  padding: 0 16px;
+}
+details.card > summary::-webkit-details-marker { display: none; }
+details.card > summary::before {
+  content: "▸ ";
+  color: var(--accent);
+}
+details.card[open] > summary::before { content: "▾ "; }
+
+h3 {
+  font-size: 13px;
+  color: var(--accent-2);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 14px 0 8px 0;
+}

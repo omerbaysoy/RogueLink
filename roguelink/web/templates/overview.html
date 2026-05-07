@@ -52,6 +52,44 @@
       <button type="submit">Reapply</button>
     </form>
   </div>
+
+  <div class="card">
+    <h2>Network Health</h2>
+    {% if data.health %}
+    <p><strong>Status:</strong> {{ data.health.status }}</p>
+    <p><strong>RTT:</strong> {{ data.health.summary.rtt_ms or "—" }} ms</p>
+    <p><strong>Packet loss:</strong> {{ data.health.summary.packet_loss_pct or "—" }}%</p>
+    <p><strong>Signal:</strong> {{ data.health.summary.signal_dbm or "—" }} dBm</p>
+    <p><strong>DNS:</strong> {{ "OK" if data.health.dns_ok else "Failing" }}</p>
+    {% else %}
+    <p class="muted">No health check on record.</p>
+    {% endif %}
+    <form method="post" action="/api/health/check"><button type="submit">Run health check</button></form>
+  </div>
+
+  <div class="card">
+    <h2>Speed Test</h2>
+    {% if data.speedtest %}
+    <p><strong>Down:</strong> {{ data.speedtest.download_mbps or "—" }} Mbps</p>
+    <p><strong>Up:</strong> {{ data.speedtest.upload_mbps or "—" }} Mbps</p>
+    <p><strong>Ping:</strong> {{ data.speedtest.ping_ms or "—" }} ms</p>
+    <p><strong>Server:</strong> {{ data.speedtest.server_name or "—" }}</p>
+    {% if not data.speedtest.ok %}<p class="warn">{{ data.speedtest.error }}</p>{% endif %}
+    {% else %}
+    <p class="muted">No speed test on record.</p>
+    {% endif %}
+    <form method="post" action="/api/speedtest/run"><button type="submit">Run speed test</button></form>
+  </div>
+
+  <div class="card">
+    <h2>Nearby / Saved Networks</h2>
+    <p><strong>Saved networks:</strong> {{ data.networks.saved_count }}</p>
+    <p><strong>Last scan:</strong> {{ data.networks.last_scan_at or "—" }} ({{ data.networks.last_scan_iface or "—" }})</p>
+    {% if data.networks.strongest_saved %}
+    <p><strong>Strongest saved:</strong> {{ data.networks.strongest_saved.ssid }} ({{ data.networks.strongest_saved.latest_signal }} dBm)</p>
+    {% endif %}
+    <p><a href="/networks">Open Networks page →</a></p>
+  </div>
 </section>
 
 {% if data.adapter_warnings %}

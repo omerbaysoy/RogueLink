@@ -12,13 +12,9 @@ from .utils import append_log
 
 def main(argv=None) -> int:
     paths.ensure_dirs()
-    created, password = auth.ensure_initial_password()
-    if created and password:
-        # Print to stdout/log so the operator can read it from the journal once.
-        msg = (
-            f"[roguelinkd] Initial admin password generated. "
-            f"username=admin password={password}"
-        )
+    created, username, password = auth.ensure_default_password()
+    if created:
+        msg = f"[roguelinkd] Created default dashboard login: {username} / {password}"
         print(msg, flush=True)
         append_log(paths.DAEMON_LOG, msg)
 

@@ -21,16 +21,21 @@ from fastapi.templating import Jinja2Templates
 from . import __subtitle__, __title__, __version__
 from . import auth, config as roguelink_config, paths
 from .services import (
+    adapter_control,
     adapter_manager,
     ap_manager,
     driver_manager,
+    fan_manager,
     firewall_manager,
+    health_manager,
     lan_manager,
     logs as logs_service,
     management_manager,
     metrics,
+    speedtest_manager,
     system_manager,
     wan_manager,
+    wifi_scan_manager,
 )
 
 
@@ -256,6 +261,267 @@ def api_log_tail(name: str, lines: int = 200, _: str = Depends(require_auth)):
 
 
 # ---------------------------------------------------------------------------
+# Networks (scan + saved)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/networks/nearby")
+def api_networks_nearby(_: str = Depends(require_auth)):
+    return {"observations": wifi_scan_manager.history(limit=200)}
+
+
+@app.get("/api/networks/scan")
+def api_networks_scan(iface: str = "", _: str = Depends(require_auth)):
+    target = iface or _default_scan_iface()
+    if not target:
+        raise HTTPException(status_code=400, detail="iface required (no WAN role assigned)")
+    return {"iface": target, "networks": wifi_scan_manager.scan(target)}
+
+
+@app.post("/api/networks/scan")
+def api_networks_scan_post(iface: str = Form(""), _: str = Depends(require_auth)):
+    target = iface or _default_scan_iface()
+    if not target:
+        raise HTTPException(status_code=400, detail="iface required")
+    return {"iface": target, "networks": wifi_scan_manager.scan(target)}
+
+
+@app.get("/api/networks/saved")
+def api_networks_saved(_: str = Depends(require_auth)):
+    return {"saved": wifi_scan_manager.list_saved()}
+
+
+@app.post("/api/networks/saved")
+def api_networks_saved_create(
+    ssid: str = Form(...),
+    psk: str = Form(""),
+    note: str = Form(""),
+    preferred_iface: str = Form(""),
+    auto_connect: bool = Form(False),
+    _: str = Depends(require_auth),
+):
+    res = wifi_scan_manager.save_network(ssid, psk, note, preferred_iface, auto_connect)
+    return res
+
+
+@app.get("/api/networks/saved/{network_id}")
+def api_networks_saved_get(network_id: int, _: str = Depends(require_auth)):
+    saved = wifi_scan_manager.get_saved(network_id)
+    if not saved:
+        raise HTTPException(status_code=404, detail="not found")
+    return {
+        "saved": saved,
+        "observations": wifi_scan_manager.observations_for(network_id),
+        "attempts": wifi_scan_manager.connection_attempts(network_id=network_id),
+    }
+
+
+@app.patch("/api/networks/saved/{network_id}")
+def api_networks_saved_update(
+    network_id: int,
+    ssid: Optional[str] = Form(None),
+    psk: Optional[str] = Form(None),
+    note: Optional[str] = Form(None),
+    preferred_iface: Optional[str] = Form(None),
+    auto_connect: Optional[bool] = Form(None),
+    enabled: Optional[bool] = Form(None),
+    _: str = Depends(require_auth),
+):
+    return wifi_scan_manager.update_saved(
+        network_id,
+        ssid=ssid,
+        psk=psk,
+        note=note,
+        preferred_iface=preferred_iface,
+        auto_connect=auto_connect,
+        enabled=enabled,
+    )
+
+
+@app.delete("/api/networks/saved/{network_id}")
+def api_networks_saved_delete(network_id: int, _: str = Depends(require_auth)):
+    return wifi_scan_manager.delete_saved(network_id)
+
+
+@app.post("/api/networks/saved/{network_id}/update")
+def api_networks_saved_update_post(
+    network_id: int,
+    ssid: Optional[str] = Form(None),
+    psk: Optional[str] = Form(None),
+    note: Optional[str] = Form(None),
+    preferred_iface: Optional[str] = Form(None),
+    auto_connect: Optional[bool] = Form(None),
+    enabled: Optional[bool] = Form(None),
+    _: str = Depends(require_auth),
+):
+    return wifi_scan_manager.update_saved(
+        network_id,
+        ssid=ssid,
+        psk=psk if psk else None,  # empty string = keep current
+        note=note,
+        preferred_iface=preferred_iface,
+        auto_connect=auto_connect,
+        enabled=enabled,
+    )
+
+
+@app.post("/api/networks/saved/{network_id}/delete")
+def api_networks_saved_delete_post(network_id: int, _: str = Depends(require_auth)):
+    return wifi_scan_manager.delete_saved(network_id)
+
+
+@app.post("/api/networks/saved/{network_id}/connect")
+def api_networks_saved_connect(
+    network_id: int,
+    iface: str = Form(""),
+    _: str = Depends(require_auth),
+):
+    res = wifi_scan_manager.connect_saved(network_id, iface or None)
+    _reapply_firewall()
+    return res
+
+
+@app.get("/api/networks/saved/{network_id}/observations")
+def api_networks_saved_observations(network_id: int, _: str = Depends(require_auth)):
+    return {"observations": wifi_scan_manager.observations_for(network_id)}
+
+
+@app.get("/api/networks/history")
+def api_networks_history(limit: int = 200, _: str = Depends(require_auth)):
+    return {"history": wifi_scan_manager.history(limit=limit)}
+
+
+@app.get("/api/networks/connection-attempts")
+def api_networks_connection_attempts(limit: int = 100, _: str = Depends(require_auth)):
+    return {"attempts": wifi_scan_manager.connection_attempts(limit=limit)}
+
+
+# ---------------------------------------------------------------------------
+# Speedtest
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/speedtest/run")
+def api_speedtest_run(iface: str = Form(""), _: str = Depends(require_auth)):
+    return speedtest_manager.run_test(iface or None)
+
+
+@app.get("/api/speedtest/last")
+def api_speedtest_last(_: str = Depends(require_auth)):
+    last = speedtest_manager.last_result()
+    return last or {"ok": False, "error": "no result on record"}
+
+
+# ---------------------------------------------------------------------------
+# Health
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/health")
+def api_health(_: str = Depends(require_auth)):
+    last = health_manager.last()
+    return last or {"ok": False, "status": "unknown", "error": "no health check on record"}
+
+
+@app.post("/api/health/check")
+def api_health_check(_: str = Depends(require_auth)):
+    return health_manager.check()
+
+
+# ---------------------------------------------------------------------------
+# Adapter control
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/adapters/control/status")
+def api_adapter_control_status(_: str = Depends(require_auth)):
+    return {"adapters": adapter_control.status_all()}
+
+
+@app.post("/api/adapters/{iface}/txpower")
+def api_adapter_txpower(iface: str, dbm: float = Form(...), _: str = Depends(require_auth)):
+    return adapter_control.set_txpower(iface, dbm)
+
+
+@app.post("/api/adapters/{iface}/txpower-auto")
+def api_adapter_txpower_auto(iface: str, _: str = Depends(require_auth)):
+    return adapter_control.set_txpower_auto(iface)
+
+
+@app.post("/api/adapters/{iface}/powersave")
+def api_adapter_powersave(iface: str, on: bool = Form(...), _: str = Depends(require_auth)):
+    return adapter_control.set_powersave(iface, on)
+
+
+@app.post("/api/adapters/{iface}/reset")
+def api_adapter_reset(iface: str, _: str = Depends(require_auth)):
+    return adapter_control.soft_reset(iface)
+
+
+@app.post("/api/adapters/{iface}/reset-usb")
+def api_adapter_reset_usb(iface: str, _: str = Depends(require_auth)):
+    return adapter_control.usb_reset(iface)
+
+
+# ---------------------------------------------------------------------------
+# Fan control + auth change
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/system/fan")
+def api_fan_status(_: str = Depends(require_auth)):
+    return fan_manager.status()
+
+
+@app.post("/api/system/fan/profile")
+def api_fan_profile(profile: str = Form(...), _: str = Depends(require_auth)):
+    return fan_manager.apply_profile(profile)
+
+
+@app.post("/api/system/fan/custom")
+def api_fan_custom(
+    t0: int = Form(...),
+    s0: int = Form(...),
+    t1: int = Form(...),
+    s1: int = Form(...),
+    t2: int = Form(...),
+    s2: int = Form(...),
+    t3: int = Form(...),
+    s3: int = Form(...),
+    _: str = Depends(require_auth),
+):
+    points = [
+        {"temp": t0, "speed": s0},
+        {"temp": t1, "speed": s1},
+        {"temp": t2, "speed": s2},
+        {"temp": t3, "speed": s3},
+    ]
+    return fan_manager.apply_profile("custom", points)
+
+
+@app.post("/api/auth/change-password")
+def api_auth_change_password(
+    current: str = Form(...),
+    new_password: str = Form(...),
+    confirm: str = Form(...),
+    _: str = Depends(require_auth),
+):
+    if new_password != confirm:
+        return {"ok": False, "error": "new password and confirmation do not match"}
+    data = auth.load()
+    username = data.get("username", auth.DEFAULT_USERNAME)
+    ok, message = auth.change_password(username, current, new_password)
+    return {"ok": ok, "message": message}
+
+
+def _default_scan_iface() -> str:
+    from .services import adapter_manager  # local import for clarity
+
+    roles = adapter_manager.detect_roles()
+    return roles.get("wan") or roles.get("management") or ""
+
+
+# ---------------------------------------------------------------------------
 # Dashboard pages
 # ---------------------------------------------------------------------------
 
@@ -306,7 +572,37 @@ def page_adapters(request: Request, _: str = Depends(require_auth)):
     ctx["roles"] = adapter_manager.detect_roles()
     ctx["warnings"] = adapter_manager.warnings()
     ctx["drivers"] = driver_manager.status()
+    ctx["controls"] = adapter_control.status_all()
     return _render(request, "adapters.html", ctx)
+
+
+@app.get("/networks", response_class=HTMLResponse)
+def page_networks(request: Request, _: str = Depends(require_auth)):
+    ctx = _page_context(request)
+    ctx["page"] = "networks"
+    ctx["adapters"] = adapter_manager.list_adapters()
+    ctx["roles"] = adapter_manager.detect_roles()
+    ctx["recent"] = wifi_scan_manager.history(limit=80)
+    saved = wifi_scan_manager.list_saved()
+    saved_full = []
+    for entry in saved:
+        observations = wifi_scan_manager.observations_for(entry["id"])
+        attempts = wifi_scan_manager.connection_attempts(network_id=entry["id"], limit=10)
+        saved_full.append(
+            {
+                "saved": entry,
+                "observations": observations,
+                "attempts": attempts,
+                "best_signal": max(
+                    (o.get("strongest_signal_seen") or -999) for o in observations
+                ) if observations else None,
+                "latest_signal": observations[0].get("latest_signal") if observations else None,
+                "last_seen": observations[0].get("last_seen") if observations else None,
+            }
+        )
+    ctx["saved"] = saved_full
+    ctx["scan_iface_default"] = _default_scan_iface()
+    return _render(request, "networks.html", ctx)
 
 
 @app.get("/management", response_class=HTMLResponse)
@@ -324,6 +620,8 @@ def page_wan(request: Request, _: str = Depends(require_auth)):
     ctx["wan"] = wan_manager.status()
     ctx["roles"] = adapter_manager.detect_roles()
     ctx["adapters"] = adapter_manager.list_adapters()
+    ctx["saved"] = wifi_scan_manager.list_saved()
+    ctx["health"] = health_manager.last()
     return _render(request, "wan.html", ctx)
 
 
@@ -355,6 +653,11 @@ def page_system(request: Request, _: str = Depends(require_auth)):
     ctx["system"] = system_manager.overview()
     ctx["firewall"] = firewall_manager.status()
     ctx["drivers"] = driver_manager.status()
+    ctx["fan"] = fan_manager.status()
+    ctx["speedtest"] = speedtest_manager.last_result()
+    ctx["health"] = health_manager.last()
+    auth_data = auth.load()
+    ctx["auth_username"] = auth_data.get("username", auth.DEFAULT_USERNAME)
     return _render(request, "system.html", ctx)
 
 
@@ -376,7 +679,7 @@ def page_logs(request: Request, name: str = "daemon", _: str = Depends(require_a
 @app.on_event("startup")
 def on_startup() -> None:
     paths.ensure_dirs()
-    auth.ensure_initial_password()
+    auth.ensure_default_password()
     # Initial firewall apply so LAN/AP/WAN rules match current state.
     try:
         _reapply_firewall()
