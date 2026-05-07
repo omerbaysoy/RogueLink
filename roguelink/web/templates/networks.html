@@ -4,7 +4,7 @@
 
 <section class="card">
   <h2>Scan</h2>
-  <form data-api="/api/networks/scan" method="post" data-render="scan">
+  <form action="javascript:void(0)" method="post" data-api="/api/networks/scan" data-method="POST" data-render="scan" data-result="#result-scan">
     <label>Interface
       <select name="iface">
         {% for ad in adapters %}
@@ -39,7 +39,7 @@
         <td>{{ n.bssid }}</td>
         <td>{{ n.iface }}</td>
         <td>
-          <form data-api="/api/networks/saved" method="post" class="inline">
+          <form action="javascript:void(0)" method="post" data-api="/api/networks/saved" data-method="POST" class="inline">
             <input type="hidden" name="ssid" value="{{ n.ssid }}">
             <input type="password" name="psk" placeholder="PSK" style="width:120px">
             <input type="text" name="note" placeholder="Note" style="width:120px">
@@ -57,7 +57,7 @@
 
 <section class="card">
   <h2>Save a network</h2>
-  <form data-api="/api/networks/saved" method="post">
+  <form action="javascript:void(0)" method="post" data-api="/api/networks/saved" data-method="POST" data-result="#result-save-network">
     <label>SSID <input name="ssid" required></label>
     <label>PSK <input type="password" name="psk"></label>
     <label>Note <input name="note"></label>
@@ -93,7 +93,7 @@
 
     <div>
       <h3>Connect</h3>
-      <form data-api="/api/networks/saved/{{ s.id }}/connect" method="post">
+      <form action="javascript:void(0)" method="post" data-api="/api/networks/saved/{{ s.id }}/connect" data-method="POST">
         <label>Iface
           <select name="iface">
             <option value="">(use preferred)</option>
@@ -106,14 +106,14 @@
       </form>
       <div class="api-result"></div>
       <h3>Edit</h3>
-      <form data-api="/api/networks/saved/{{ s.id }}/update" method="post">
+      <form action="javascript:void(0)" method="post" data-api="/api/networks/saved/{{ s.id }}/update" data-method="POST">
         <label>Note <input name="note" value="{{ s.note }}"></label>
         <label>PSK <input type="password" name="psk" placeholder="leave empty to keep"></label>
         <label>Preferred iface <input name="preferred_iface" value="{{ s.preferred_iface }}"></label>
         <button type="submit">Update</button>
       </form>
       <div class="api-result"></div>
-      <form data-api="/api/networks/saved/{{ s.id }}/delete" method="post" data-reload="true">
+      <form action="javascript:void(0)" method="post" data-api="/api/networks/saved/{{ s.id }}/delete" data-method="POST" data-reload="true">
         <button type="submit" onclick="return confirm('Delete saved network {{ s.ssid }}?')">Delete</button>
       </form>
       <div class="api-result"></div>

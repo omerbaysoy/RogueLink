@@ -449,8 +449,9 @@ def api_adapter_txpower_auto(iface: str, _: str = Depends(require_auth)):
 
 
 @app.post("/api/adapters/{iface}/powersave")
-def api_adapter_powersave(iface: str, on: bool = Form(...), _: str = Depends(require_auth)):
-    return adapter_control.set_powersave(iface, on)
+def api_adapter_powersave(iface: str, on: str = Form(...), _: str = Depends(require_auth)):
+    enabled = on.lower() in ("true", "1", "on", "yes")
+    return adapter_control.set_powersave(iface, enabled)
 
 
 @app.post("/api/adapters/{iface}/reset")
@@ -519,6 +520,22 @@ def _default_scan_iface() -> str:
 
     roles = adapter_manager.detect_roles()
     return roles.get("wan") or roles.get("management") or ""
+
+
+# ---------------------------------------------------------------------------
+# Debug: list all registered routes
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/routes")
+def api_routes():
+    """Debug endpoint: list all registered routes and their methods."""
+    routes = []
+    for route in app.routes:
+        if hasattr(route, "methods") and hasattr(route, "path"):
+            routes.append({"path": route.path, "methods": sorted(route.methods)})
+    routes.sort(key=lambda r: r["path"])
+    return {"routes": routes}
 
 
 # ---------------------------------------------------------------------------

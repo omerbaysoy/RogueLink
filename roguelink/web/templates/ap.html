@@ -13,7 +13,7 @@
 
 <section class="card">
   <h2>Start AP</h2>
-  <form data-api="/api/ap/start" method="post">
+  <form action="javascript:void(0)" method="post" data-api="/api/ap/start" data-method="POST" data-result="#result-ap-start">
     <label>Interface
       <select name="iface" required>
         {% for ad in adapters %}
@@ -30,7 +30,7 @@
     <button type="submit">Start AP</button>
   </form>
   <div class="api-result" id="result-ap-start"></div>
-  <form data-api="/api/ap/stop" method="post">
+  <form action="javascript:void(0)" method="post" data-api="/api/ap/stop" data-method="POST" data-result="#result-ap-stop">
     <button type="submit">Stop AP</button>
   </form>
   <div class="api-result" id="result-ap-stop"></div>

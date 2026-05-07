@@ -53,7 +53,7 @@
   {% if fan.applied_at %}<p><strong>Applied at:</strong> {{ fan.applied_at }}</p>{% endif %}
   {% if fan.backup %}<p><strong>Backup:</strong> {{ fan.backup }}</p>{% endif %}
   {% if fan.reboot_required %}<p class="warn">Reboot required to activate the latest config.txt changes.</p>{% endif %}
-  <form data-api="/api/system/fan/profile" method="post" class="inline">
+  <form action="javascript:void(0)" method="post" data-api="/api/system/fan/profile" data-method="POST" class="inline" data-result="#result-fan-profile">
     <label>Profile
       <select name="profile">
         {% for p in fan.available_profiles %}
@@ -64,7 +64,7 @@
     <button type="submit">Apply profile</button>
   </form>
   <div class="api-result" id="result-fan-profile"></div>
-  <form data-api="/api/system/fan/custom" method="post" class="inline">
+  <form action="javascript:void(0)" method="post" data-api="/api/system/fan/custom" data-method="POST" class="inline" data-result="#result-fan-custom">
     <label>t0 <input type="number" name="t0" value="50"></label>
     <label>s0 <input type="number" name="s0" value="75"></label>
     <label>t1 <input type="number" name="t1" value="60"></label>
@@ -88,7 +88,7 @@
   {% else %}
   <p class="muted">No speed test on record.</p>
   {% endif %}
-  <form data-api="/api/speedtest/run" method="post" data-render="speedtest">
+  <form action="javascript:void(0)" method="post" data-api="/api/speedtest/run" data-method="POST" data-render="speedtest" data-result="#result-sys-speedtest">
     <button type="submit">Run speed test</button>
   </form>
   <div class="api-result" id="result-sys-speedtest"></div>
@@ -97,7 +97,7 @@
 <section class="card">
   <h2>Security — change dashboard password</h2>
   <p><strong>Username:</strong> {{ auth_username }}</p>
-  <form data-api="/api/auth/change-password" method="post">
+  <form action="javascript:void(0)" method="post" data-api="/api/auth/change-password" data-method="POST" data-result="#result-password">
     <label>Current <input type="password" name="current" required></label>
     <label>New <input type="password" name="new_password" minlength="4" required></label>
     <label>Confirm <input type="password" name="confirm" minlength="4" required></label>

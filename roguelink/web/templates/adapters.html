@@ -45,7 +45,7 @@
 </table>
 
 <h2>Assign roles</h2>
-<form data-api="/api/adapters/role" method="post" class="inline" data-reload="true">
+<form action="javascript:void(0)" method="post" data-api="/api/adapters/role" data-method="POST" class="inline" data-reload="true" data-result="#result-role-assign">
   <label>Role
     <select name="role">
       <option value="wan">wan</option>
@@ -77,31 +77,31 @@
     Soft reset: {{ "supported" if ctl.supports_soft_reset else "no" }} ·
     USB reset: {{ "supported" if ctl.supports_usb_reset else "unsupported" }}
   </p>
-  <form data-api="/api/adapters/{{ ad.iface }}/txpower" method="post" class="inline">
+  <form action="javascript:void(0)" method="post" data-api="/api/adapters/{{ ad.iface }}/txpower" data-method="POST" class="inline">
     <label>TX power dBm <input type="number" step="0.5" name="dbm" value="{{ ctl.txpower_dbm or 20 }}"></label>
     <button type="submit">Set TX power</button>
   </form>
   <div class="api-result"></div>
-  <form data-api="/api/adapters/{{ ad.iface }}/txpower-auto" method="post" class="inline">
+  <form action="javascript:void(0)" method="post" data-api="/api/adapters/{{ ad.iface }}/txpower-auto" data-method="POST" class="inline">
     <button type="submit">Auto TX power</button>
   </form>
   <div class="api-result"></div>
-  <form data-api="/api/adapters/{{ ad.iface }}/powersave" method="post" class="inline">
+  <form action="javascript:void(0)" method="post" data-api="/api/adapters/{{ ad.iface }}/powersave" data-method="POST" class="inline">
     <input type="hidden" name="on" value="true">
     <button type="submit">Power save ON</button>
   </form>
   <div class="api-result"></div>
-  <form data-api="/api/adapters/{{ ad.iface }}/powersave" method="post" class="inline">
+  <form action="javascript:void(0)" method="post" data-api="/api/adapters/{{ ad.iface }}/powersave" data-method="POST" class="inline">
     <input type="hidden" name="on" value="false">
     <button type="submit">Power save OFF</button>
   </form>
   <div class="api-result"></div>
-  <form data-api="/api/adapters/{{ ad.iface }}/reset" method="post" class="inline">
+  <form action="javascript:void(0)" method="post" data-api="/api/adapters/{{ ad.iface }}/reset" data-method="POST" class="inline">
     <button type="submit">Soft reset</button>
   </form>
   <div class="api-result"></div>
   {% if ctl.supports_usb_reset %}
-  <form data-api="/api/adapters/{{ ad.iface }}/reset-usb" method="post" class="inline">
+  <form action="javascript:void(0)" method="post" data-api="/api/adapters/{{ ad.iface }}/reset-usb" data-method="POST" class="inline">
     <button type="submit">USB reset</button>
   </form>
   <div class="api-result"></div>

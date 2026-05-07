@@ -13,7 +13,7 @@
 
 <section class="card">
   <h2>Scan and Connect</h2>
-  <form data-api="/api/wan/scan" method="post" data-render="wanscan">
+  <form action="javascript:void(0)" method="post" data-api="/api/wan/scan" data-method="POST" data-render="wanscan" data-result="#result-wan-scan">
     <label>Scan interface
       <select name="iface" required>
         {% for ad in adapters %}
@@ -27,7 +27,7 @@
   </form>
   <div class="api-result" id="result-wan-scan"></div>
 
-  <form data-api="/api/wan/connect" method="post">
+  <form action="javascript:void(0)" method="post" data-api="/api/wan/connect" data-method="POST" data-result="#result-wan-connect">
     <label>Interface
       <select name="iface" required>
         {% for ad in adapters %}
@@ -44,7 +44,7 @@
   </form>
   <div class="api-result" id="result-wan-connect"></div>
 
-  <form data-api="/api/wan/disconnect" method="post">
+  <form action="javascript:void(0)" method="post" data-api="/api/wan/disconnect" data-method="POST" data-result="#result-wan-disconnect">
     <button type="submit">Disconnect</button>
   </form>
   <div class="api-result" id="result-wan-disconnect"></div>
@@ -55,7 +55,7 @@
   {% if saved %}
   <p>Pick a saved network to connect using its stored PSK.</p>
   {% for s in saved %}
-  <form data-api="/api/networks/saved/{{ s.id }}/connect" method="post" class="inline">
+  <form action="javascript:void(0)" method="post" data-api="/api/networks/saved/{{ s.id }}/connect" data-method="POST" class="inline">
     <strong>{{ s.ssid }}</strong>
     {% if s.note %}<span class="muted">— {{ s.note }}</span>{% endif %}
     <select name="iface">
@@ -86,7 +86,7 @@
   {% else %}
   <p class="muted">No health check on record.</p>
   {% endif %}
-  <form data-api="/api/health/check" method="post" data-render="health">
+  <form action="javascript:void(0)" method="post" data-api="/api/health/check" data-method="POST" data-render="health" data-result="#result-wan-health">
     <button type="submit">Run health check</button>
   </form>
   <div class="api-result" id="result-wan-health"></div>

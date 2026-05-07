@@ -1,17 +1,21 @@
-/* RogueLink Dashboard — fetch-based API helper.
+/* RogueLink Dashboard — global API action handler.
  *
- * Any <form data-api="/api/..."> is intercepted: instead of navigating the
- * browser to the raw JSON endpoint the form is submitted via fetch() and
- * the response is rendered in the nearest .api-result container.
+ * Intercepts ALL form submissions with data-api attribute via a single
+ * document-level "submit" listener (event delegation). This ensures even
+ * forms rendered dynamically or inside <details> elements are caught.
  *
- * Usage in templates:
- *   <form data-api="/api/health/check" method="post">
- *     <button type="submit">Run</button>
- *   </form>
- *   <div class="api-result" id="result-health"></div>
+ * Also handles standalone <button data-api="..."> clicks via a document-level
+ * "click" listener.
  *
- * For actions that should reload the page after success, add data-reload="true".
- * For scan results that need a custom renderer, add data-render="scan".
+ * Forms MUST have:
+ *   data-api="/api/endpoint"    — the fetch URL
+ *   action="javascript:void(0)" — safety net to prevent native navigation
+ *
+ * Optional attributes:
+ *   data-method="POST"          — HTTP method (default: POST)
+ *   data-render="scan"          — custom renderer name
+ *   data-result="#element-id"   — explicit result target
+ *   data-reload="true"          — reload page after success
  */
 
 (function () {
@@ -27,24 +31,36 @@
 
   function ce(tag, attrs, text) {
     var el = document.createElement(tag);
-    if (attrs) Object.keys(attrs).forEach(function (k) { el.setAttribute(k, attrs[k]); });
+    if (attrs) {
+      Object.keys(attrs).forEach(function (k) { el.setAttribute(k, attrs[k]); });
+    }
     if (text !== undefined) el.textContent = text;
     return el;
   }
 
-  /** Find the nearest .api-result container for a form. */
-  function findResultTarget(form) {
-    // Explicit target via data-target="#id"
-    var tid = form.getAttribute("data-target");
-    if (tid) return qs(tid);
-    // Next sibling .api-result
-    var sib = form.nextElementSibling;
+  function escHtml(s) {
+    if (s === null || s === undefined) return "";
+    var d = document.createElement("div");
+    d.textContent = String(s);
+    return d.innerHTML;
+  }
+
+  /** Find the result target for a form or button element. */
+  function findResultTarget(el) {
+    // 1. Explicit data-result="#id"
+    var rid = el.getAttribute("data-result");
+    if (rid) {
+      var explicit = qs(rid);
+      if (explicit) return explicit;
+    }
+    // 2. Next sibling .api-result
+    var sib = el.nextElementSibling;
     while (sib) {
       if (sib.classList && sib.classList.contains("api-result")) return sib;
       sib = sib.nextElementSibling;
     }
-    // Parent's next sibling
-    var parent = form.parentElement;
+    // 3. Parent's next sibling .api-result
+    var parent = el.parentElement;
     if (parent) {
       sib = parent.nextElementSibling;
       while (sib) {
@@ -52,9 +68,11 @@
         sib = sib.nextElementSibling;
       }
     }
-    // Fallback: create one after the form
-    var div = ce("div", { class: "api-result" });
-    form.parentNode.insertBefore(div, form.nextSibling);
+    // 4. Fallback: create one after the element
+    var div = ce("div", { "class": "api-result" });
+    if (el.parentNode) {
+      el.parentNode.insertBefore(div, el.nextSibling);
+    }
     return div;
   }
 
@@ -64,7 +82,7 @@
 
   function renderLoading(target) {
     target.className = "api-result loading";
-    target.innerHTML = '<span class="spinner"></span> Working…';
+    target.innerHTML = '<span class="spinner"></span> Working\u2026';
   }
 
   function renderSuccess(target, data) {
@@ -73,15 +91,16 @@
       target.textContent = data;
       return;
     }
-    // Build a small key-value display
     var html = "";
-    if (data.ok === true) html += '<p class="api-ok">✓ OK</p>';
-    if (data.ok === false) html += '<p class="api-err">✗ Failed</p>';
+    if (data.ok === true) html += '<p class="api-ok">\u2713 OK</p>';
+    if (data.ok === false) html += '<p class="api-err">\u2717 Failed</p>';
+    if (data.detail) html += '<p class="api-err">' + escHtml(data.detail) + "</p>";
     if (data.error) html += '<p class="api-err">' + escHtml(data.error) + "</p>";
     if (data.message) html += "<p>" + escHtml(data.message) + "</p>";
-    // Show select keys
-    var skip = new Set(["ok", "error", "message", "raw", "output", "public_targets",
-      "dns_targets", "gateway_ping", "dns_servers", "wan_signal"]);
+    var skip = new Set([
+      "ok", "error", "message", "detail", "raw", "output",
+      "public_targets", "dns_targets", "gateway_ping", "dns_servers", "wan_signal"
+    ]);
     Object.keys(data).forEach(function (k) {
       if (skip.has(k)) return;
       var v = data[k];
@@ -97,13 +116,7 @@
 
   function renderError(target, message) {
     target.className = "api-result error";
-    target.innerHTML = '<p class="api-err">✗ ' + escHtml(message) + "</p>";
-  }
-
-  function escHtml(s) {
-    var d = document.createElement("div");
-    d.textContent = s;
-    return d.innerHTML;
+    target.innerHTML = '<p class="api-err">\u2717 ' + escHtml(message) + "</p>";
   }
 
   /** Render Wi-Fi scan results as a table. */
@@ -127,36 +140,37 @@
       row.appendChild(ce("td", null, n.ssid || ""));
       row.appendChild(ce("td", null, n.bssid || ""));
       var sig = n.signal_dbm;
-      row.appendChild(ce("td", null, sig != null ? Math.round(sig).toString() : "—"));
-      row.appendChild(ce("td", null, n.quality || "—"));
-      row.appendChild(ce("td", null, n.channel != null ? String(n.channel) : "—"));
-      row.appendChild(ce("td", null, n.band || "—"));
-      row.appendChild(ce("td", null, n.security || "—"));
-      row.appendChild(ce("td", null, n.iface || "—"));
-      // Actions: save button
+      row.appendChild(ce("td", null, sig != null ? Math.round(sig).toString() : "\u2014"));
+      row.appendChild(ce("td", null, n.quality || "\u2014"));
+      row.appendChild(ce("td", null, n.channel != null ? String(n.channel) : "\u2014"));
+      row.appendChild(ce("td", null, n.band || "\u2014"));
+      row.appendChild(ce("td", null, n.security || "\u2014"));
+      row.appendChild(ce("td", null, n.iface || "\u2014"));
       var actTd = ce("td");
-      var saveBtn = ce("button", { class: "btn-sm", "data-ssid": n.ssid || "" }, "Save");
-      saveBtn.addEventListener("click", function () { openSaveDialog(n); });
-      actTd.appendChild(saveBtn);
+      if (n.ssid) {
+        var saveBtn = ce("button", { "class": "btn-sm", type: "button" }, "Save");
+        saveBtn.addEventListener("click", function () { openSaveDialog(n); });
+        actTd.appendChild(saveBtn);
+      }
       row.appendChild(actTd);
       tbody.appendChild(row);
     });
     table.appendChild(tbody);
     target.innerHTML = "";
-    var heading = ce("p", null, networks.length + " network(s) found on " + (data.iface || "—"));
+    var heading = ce("p", null, networks.length + " network(s) found on " + (data.iface || "\u2014"));
     heading.style.marginBottom = "8px";
     target.appendChild(heading);
     target.appendChild(table);
   }
 
-  /** Render health check result as a structured card. */
+  /** Render health check result. */
   function renderHealth(target, data) {
     target.className = "api-result success";
     var html = "";
-    var color = { excellent: "#4ade80", good: "#4ade80", partial: "#fbbf24", weak: "#fbbf24", unstable: "#fbbf24", offline: "#f87171" };
-    var status = data.status || data.overall || "unknown";
-    var c = color[status] || "#d6dde5";
-    html += '<p><strong>Overall:</strong> <span style="color:' + c + '">' + escHtml(status) + "</span></p>";
+    var colors = { excellent: "#4ade80", good: "#4ade80", partial: "#fbbf24", weak: "#fbbf24", unstable: "#fbbf24", offline: "#f87171" };
+    var st = data.status || data.overall || "unknown";
+    var c = colors[st] || "#d6dde5";
+    html += '<p><strong>Overall:</strong> <span style="color:' + c + '">' + escHtml(st) + "</span></p>";
     if (data.reason) html += "<p><strong>Reason:</strong> " + escHtml(data.reason) + "</p>";
     var s = data.summary || {};
     if (s.rtt_ms != null) html += "<p><strong>RTT:</strong> " + s.rtt_ms + " ms</p>";
@@ -166,7 +180,7 @@
     if (s.signal_dbm != null) html += "<p><strong>Signal:</strong> " + s.signal_dbm + " dBm</p>";
     if (data.dns_ok !== undefined) html += "<p><strong>DNS:</strong> " + (data.dns_ok ? "OK" : "Failing") + "</p>";
     if (data.management_internet !== undefined)
-      html += "<p><strong>Management Internet:</strong> " + (data.management_internet ? "OK" : "No") + "</p>";
+      html += "<p><strong>Mgmt Internet:</strong> " + (data.management_internet ? "OK" : "No") + "</p>";
     if (data.wan_status) html += "<p><strong>WAN status:</strong> " + escHtml(data.wan_status) + "</p>";
     if (data.duration_s != null) html += '<p class="muted">Checked in ' + data.duration_s + "s</p>";
     target.innerHTML = html;
@@ -177,11 +191,11 @@
     target.className = "api-result success";
     var html = "";
     if (data.ok === false) {
-      html += '<p class="api-err">✗ ' + escHtml(data.error || "Speed test failed") + "</p>";
+      html += '<p class="api-err">\u2717 ' + escHtml(data.error || "Speed test failed") + "</p>";
     } else {
-      html += "<p><strong>Download:</strong> " + (data.download_mbps || "—") + " Mbps</p>";
-      html += "<p><strong>Upload:</strong> " + (data.upload_mbps || "—") + " Mbps</p>";
-      html += "<p><strong>Ping:</strong> " + (data.ping_ms || "—") + " ms</p>";
+      html += "<p><strong>Download:</strong> " + (data.download_mbps || "\u2014") + " Mbps</p>";
+      html += "<p><strong>Upload:</strong> " + (data.upload_mbps || "\u2014") + " Mbps</p>";
+      html += "<p><strong>Ping:</strong> " + (data.ping_ms || "\u2014") + " ms</p>";
       if (data.server_name) html += "<p><strong>Server:</strong> " + escHtml(data.server_name) + "</p>";
     }
     target.innerHTML = html;
@@ -198,7 +212,9 @@
     var table = ce("table");
     var thead = ce("thead");
     var tr = ce("tr");
-    ["SSID", "BSSID", "Channel", "Signal", "Encryption"].forEach(function (c) { tr.appendChild(ce("th", null, c)); });
+    ["SSID", "BSSID", "Channel", "Signal", "Encryption"].forEach(function (c) {
+      tr.appendChild(ce("th", null, c));
+    });
     thead.appendChild(tr);
     table.appendChild(thead);
     var tbody = ce("tbody");
@@ -206,9 +222,9 @@
       var row = ce("tr");
       row.appendChild(ce("td", null, n.ssid || ""));
       row.appendChild(ce("td", null, n.bssid || ""));
-      row.appendChild(ce("td", null, n.channel != null ? String(n.channel) : "—"));
-      row.appendChild(ce("td", null, n.signal != null ? String(n.signal) : "—"));
-      row.appendChild(ce("td", null, n.encryption || "—"));
+      row.appendChild(ce("td", null, n.channel != null ? String(n.channel) : "\u2014"));
+      row.appendChild(ce("td", null, n.signal != null ? String(n.signal) : "\u2014"));
+      row.appendChild(ce("td", null, n.encryption || "\u2014"));
       tbody.appendChild(row);
     });
     table.appendChild(tbody);
@@ -219,8 +235,8 @@
 
   function openSaveDialog(network) {
     var ssid = network.ssid || "";
-    var psk = prompt("PSK for "" + ssid + "" (leave empty for open):", "");
-    if (psk === null) return; // cancelled
+    var psk = prompt('PSK for "' + ssid + '" (leave empty for open):', "");
+    if (psk === null) return;
     var note = prompt("Note (optional):", "");
     if (note === null) note = "";
     var body = new FormData();
@@ -230,8 +246,8 @@
     fetch("/api/networks/saved", { method: "POST", body: body })
       .then(function (r) { return r.json(); })
       .then(function (d) {
-        if (d.ok) alert("Saved: " + ssid);
-        else alert("Error: " + (d.error || "unknown"));
+        if (d.ok || d.id) alert("Saved: " + ssid);
+        else alert("Error: " + (d.error || d.detail || "unknown"));
       })
       .catch(function (e) { alert("Network error: " + e.message); });
   }
@@ -244,19 +260,26 @@
     scan: renderScanTable,
     health: renderHealth,
     speedtest: renderSpeedtest,
-    wanscan: renderWanScan,
+    wanscan: renderWanScan
   };
 
   // -----------------------------------------------------------------------
-  // Form interception
+  // Core: document-level submit handler (event delegation)
   // -----------------------------------------------------------------------
 
-  function handleSubmit(ev) {
-    ev.preventDefault();
+  function handleFormSubmit(ev) {
+    // Walk up from ev.target to find the form
     var form = ev.target;
+    if (form.tagName !== "FORM") form = form.closest("form");
+    if (!form) return;
     var url = form.getAttribute("data-api");
-    if (!url) return;
-    var method = (form.method || "POST").toUpperCase();
+    if (!url) return; // Not an API form, let it submit normally
+
+    // ALWAYS prevent default — never navigate away
+    ev.preventDefault();
+    ev.stopPropagation();
+
+    var method = (form.getAttribute("data-method") || form.method || "POST").toUpperCase();
     var target = findResultTarget(form);
     var renderName = form.getAttribute("data-render");
     var reload = form.getAttribute("data-reload") === "true";
@@ -264,11 +287,11 @@
     renderLoading(target);
 
     // Disable submit buttons during request
-    var btns = form.querySelectorAll('button[type="submit"], button:not([type])');
+    var btns = form.querySelectorAll("button");
     btns.forEach(function (b) { b.disabled = true; });
 
     var opts = { method: method };
-    if (method === "POST" || method === "PATCH" || method === "PUT") {
+    if (method === "POST" || method === "PATCH" || method === "PUT" || method === "DELETE") {
       opts.body = new FormData(form);
     } else if (method === "GET") {
       var params = new URLSearchParams(new FormData(form)).toString();
@@ -278,8 +301,15 @@
     fetch(url, opts)
       .then(function (resp) {
         if (!resp.ok) {
-          return resp.json().catch(function () { return { error: "HTTP " + resp.status }; }).then(function (d) {
-            throw new Error(d.detail || d.error || "HTTP " + resp.status);
+          return resp.text().then(function (text) {
+            var errMsg = "HTTP " + resp.status;
+            try {
+              var json = JSON.parse(text);
+              errMsg = json.detail || json.error || json.message || errMsg;
+            } catch (e) {
+              if (text) errMsg += ": " + text.substring(0, 200);
+            }
+            throw new Error(errMsg);
           });
         }
         return resp.json();
@@ -303,11 +333,68 @@
   }
 
   // -----------------------------------------------------------------------
-  // Programmatic API call (for use from other scripts if needed)
+  // Core: document-level click handler for standalone buttons
+  // -----------------------------------------------------------------------
+
+  function handleButtonClick(ev) {
+    var btn = ev.target.closest("button[data-api]");
+    if (!btn) return;
+    // If this button is inside a form with data-api, the form submit handler will handle it
+    var parentForm = btn.closest("form[data-api]");
+    if (parentForm) return;
+
+    ev.preventDefault();
+    ev.stopPropagation();
+
+    var url = btn.getAttribute("data-api");
+    var method = (btn.getAttribute("data-method") || "POST").toUpperCase();
+    var target = findResultTarget(btn);
+    var renderName = btn.getAttribute("data-render");
+
+    renderLoading(target);
+    btn.disabled = true;
+
+    fetch(url, { method: method })
+      .then(function (resp) {
+        if (!resp.ok) {
+          return resp.text().then(function (text) {
+            var errMsg = "HTTP " + resp.status;
+            try {
+              var json = JSON.parse(text);
+              errMsg = json.detail || json.error || json.message || errMsg;
+            } catch (e) {
+              if (text) errMsg += ": " + text.substring(0, 200);
+            }
+            throw new Error(errMsg);
+          });
+        }
+        return resp.json();
+      })
+      .then(function (data) {
+        if (renderName && renderers[renderName]) {
+          renderers[renderName](target, data);
+        } else {
+          renderSuccess(target, data);
+        }
+      })
+      .catch(function (err) {
+        renderError(target, err.message || "Request failed");
+      })
+      .finally(function () {
+        btn.disabled = false;
+      });
+  }
+
+  // -----------------------------------------------------------------------
+  // Programmatic API call (for use from inline scripts)
   // -----------------------------------------------------------------------
 
   window.runApiAction = function (endpoint, payload, targetSelector) {
-    var target = qs(targetSelector) || document.body;
+    var target = qs(targetSelector);
+    if (!target) {
+      target = ce("div", { "class": "api-result" });
+      document.body.appendChild(target);
+    }
     renderLoading(target);
     var opts = { method: "POST" };
     if (payload) {
@@ -317,48 +404,18 @@
     }
     return fetch(endpoint, opts)
       .then(function (r) { return r.json(); })
-      .then(function (data) {
-        renderSuccess(target, data);
-        return data;
-      })
-      .catch(function (err) {
-        renderError(target, err.message);
-      });
+      .then(function (data) { renderSuccess(target, data); return data; })
+      .catch(function (err) { renderError(target, err.message); });
   };
 
   // -----------------------------------------------------------------------
-  // DELETE method helper — forms can't use DELETE natively
+  // Attach ONCE at document level — catches ALL forms and buttons
   // -----------------------------------------------------------------------
 
-  function handleDelete(ev) {
-    ev.preventDefault();
-    var btn = ev.currentTarget;
-    var url = btn.getAttribute("data-delete");
-    if (!url) return;
-    if (!confirm("Are you sure?")) return;
-    var target = findResultTarget(btn.closest("form") || btn.parentElement);
-    renderLoading(target);
-    fetch(url, { method: "POST" })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        renderSuccess(target, data);
-        if (data.ok) setTimeout(function () { location.reload(); }, 1000);
-      })
-      .catch(function (err) { renderError(target, err.message); });
-  }
+  document.addEventListener("submit", handleFormSubmit, true);
+  document.addEventListener("click", handleButtonClick, false);
 
-  // -----------------------------------------------------------------------
-  // Init on DOMContentLoaded
-  // -----------------------------------------------------------------------
+  // Debug: log that app.js loaded successfully
+  console.log("[RogueLink] app.js loaded — API form handler active");
 
-  document.addEventListener("DOMContentLoaded", function () {
-    // Attach to all forms with data-api
-    document.querySelectorAll("form[data-api]").forEach(function (form) {
-      form.addEventListener("submit", handleSubmit);
-    });
-    // Attach delete buttons
-    document.querySelectorAll("[data-delete]").forEach(function (btn) {
-      btn.addEventListener("click", handleDelete);
-    });
-  });
 })();
