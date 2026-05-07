@@ -18,7 +18,7 @@ from . import paths
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "general": {
-        "host": "0.0.0.0",
+        "host": "auto",
         "api_port": 8080,
         "country_code": "US",
         "log_level": "INFO",

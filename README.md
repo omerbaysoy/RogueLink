@@ -1,304 +1,352 @@
 # RogueLink
 
-**Rogue Network Tool** — a Raspberry Pi router/AP appliance.
+**Rogue Network Tool** — Raspberry Pi 5 router/AP/WAN appliance with a
+dark-mode operator dashboard, CLI, and full driver management.
 
-RogueLink turns a Raspberry Pi 5 (with one onboard Wi-Fi chip and two USB
-Wi-Fi adapters) into a self-contained router that:
+> **Target:** Raspberry Pi 5, 2 GB RAM, NVMe SSD, Raspberry Pi OS Lite 64-bit (Trixie)
 
-- exposes a fixed **management interface** on the onboard Pi Wi-Fi,
-- accepts a **WAN uplink** over an external USB Wi-Fi adapter,
-- broadcasts an **AP** on a second external USB Wi-Fi adapter,
-- can also share the WAN over **eth0 as wired LAN**,
-- is controlled by a CLI (`roguelink`) and a lightweight web dashboard,
-- runs as a persistent systemd service (`roguelinkd.service`).
+---
 
-## Project layout
-
-```
-roguelink/             Python package: API, CLI, services, web assets
-scripts/               install.sh / uninstall.sh / dev_run.sh
-systemd/               roguelinkd.service unit
-config/                roguelink.example.toml
-external/              Reference projects (not committed)
-```
-
-## Supported platform
-
-- **Hardware:** Raspberry Pi 5 (2 GB) with NVMe SSD.
-- **OS:** Raspberry Pi OS Lite 64-bit Trixie (Bookworm also works).
-- **Wireless:** internal Broadcom (`brcmfmac`) for management; one or two
-  USB adapters from the supported list below.
-
-## Supported USB Wi-Fi adapters
-
-| Chipset    | Role hint                       | Driver path                       |
-|------------|---------------------------------|------------------------------------|
-| MT7612U    | Preferred for AP                 | In-kernel `mt76` + firmware-misc-nonfree |
-| RTL8812AU  | Preferred for WAN/uplink         | aircrack-ng/rtl8812au (`v5.6.4.2`) DKMS, fallback morrownr |
-| RTL88x2BU  | Alternate WAN/AP                 | morrownr/88x2bu DKMS               |
-| RTL8188EUS | 2.4 GHz fallback                 | aircrack-ng/rtl8188eus DKMS        |
-
-Adapter identity is bound to the USB vendor:product ID (read from sysfs)
-so role assignments survive interface-name reshuffles between reboots.
-
-## Installation
+## Quick start
 
 ```bash
-sudo ./scripts/install.sh
-```
+# Clone on the Pi (or copy from another machine)
+git clone https://github.com/omerbaysoy/RogueLink.git /tmp/roguelink
+cd /tmp/roguelink
 
-The installer:
+# Install (requires root)
+sudo bash scripts/install.sh
 
-1. installs apt dependencies (python3, hostapd, dnsmasq, nftables, iw,
-   wpasupplicant, dkms, kernel headers, …),
-2. copies the project to `/opt/roguelink`,
-3. creates a Python virtualenv at `/opt/roguelink/venv`,
-4. installs the example config at `/etc/roguelink/roguelink.toml`,
-5. registers `roguelink` (CLI) at `/usr/local/bin/roguelink`,
-6. installs and enables `roguelinkd.service`,
-7. generates the initial admin password (printed on stdout and stored at
-   `/etc/roguelink/initial_password.txt` — root-only),
-8. starts the daemon and prints the dashboard URL.
-
-To remove RogueLink:
-
-```bash
-sudo ./scripts/uninstall.sh           # keep config/state
-sudo ./scripts/uninstall.sh --purge   # also wipe /etc/roguelink, /var/lib/roguelink, /var/log/roguelink
-```
-
-## Service management
-
-```bash
-sudo systemctl start  roguelinkd
-sudo systemctl stop   roguelinkd
-sudo systemctl status roguelinkd
-journalctl -u roguelinkd -f
-```
-
-## CLI
-
-```text
-roguelink                                  # banner: mgmt IP, dashboard URL, WAN/AP/LAN status, temperature
+# Verify
 roguelink status
-roguelink dashboard
-roguelink adapters                         # list adapters and roles
-roguelink mgmt status
-roguelink mgmt connect --ssid "..." --psk "..."
-
-# WAN
-roguelink wan scan --iface wlan1
-roguelink wan connect --iface wlan1 --ssid "..." --psk "..."
-roguelink wan disconnect
-
-# AP / LAN
-roguelink ap start  --iface wlan2 --ssid "..." --psk "..."
-roguelink ap stop
-roguelink lan {status|start --iface eth0|stop}
-
-# Networks (Wi-Fi scan + saved profiles)
-roguelink networks scan [--iface <iface>] [--json]
-roguelink networks list                    # all observations across SSIDs
-roguelink networks saved                   # saved networks summary
-roguelink networks show <id>
-roguelink networks save --ssid "..." --psk "..." --note "..." [--iface <iface>]
-roguelink networks update <id> [--ssid ...] [--psk ...] [--note ...] [--iface ...]
-roguelink networks delete <id>
-roguelink networks connect <id> [--iface <iface>]
-roguelink networks history
-roguelink networks observations <id>
-
-# Speed test
-roguelink speedtest [--iface <iface>] [--json]
-roguelink speedtest last
-
-# Health
-roguelink health [--json]
-roguelink health watch                     # repeated checks
-
-# Adapter power/reset (singular form)
-roguelink adapter power <iface>
-roguelink adapter txpower <iface> --dbm 20
-roguelink adapter txpower-auto <iface>
-roguelink adapter powersave <iface> on|off
-roguelink adapter reset <iface>            # ip link down/up
-roguelink adapter reset-usb <iface>        # re-authorize USB device
-
-# Fan profiles (Pi 5)
-roguelink fan status
-roguelink fan set quiet|balanced|performance|max
-roguelink fan set custom --t0 50 --s0 75 --t1 60 --s1 125 --t2 67 --s2 192 --t3 75 --s3 255
-
-# Misc
-roguelink clients
-roguelink logs [name]                      # daemon|setup|wan|ap|lan|firewall|networks|speedtest|health
-roguelink firewall {status|reapply|flush}
-roguelink set-password
-roguelink system apply-pi5                 # apply Pi 5 boot config + zram (then reboot)
-roguelink system install-driver mt7612u
 ```
+
+The installer creates a virtualenv at `/opt/roguelink/venv`, copies code to
+`/opt/roguelink`, installs the `roguelinkd.service` systemd unit, and starts
+the daemon.
+
+### Default dashboard login
+
+| Field    | Value        |
+|----------|--------------|
+| URL      | `http://<management-ip>:8080` |
+| Username | `admin`      |
+| Password | `roguelink`  |
+
+Change the password immediately via the dashboard **System → Security** section
+or the CLI:
+
+```bash
+sudo roguelink set-password
+```
+
+---
 
 ## Dashboard
 
-The dashboard is served by the daemon on the management interface
-(`http://<management-ip>:8080`). Pages: **Overview, Adapters, Networks,
-Management, WAN, AP, LAN, System, Logs**.
+The dashboard opens at the management interface IP on port 8080.
+All dashboard actions (scan, health check, speedtest, AP start/stop, etc.)
+submit via JavaScript `fetch()` and display results inline — the browser
+never navigates to raw JSON API endpoints.
 
-- **Authentication:** HTTP Basic. Loopback (`127.0.0.1`) requests are
-  allowed without auth so the local CLI can talk to the API.
-- **Default credentials:** `admin` / `roguelink`. These are written by the
-  installer if `/etc/roguelink/auth.json` does not yet exist.
-- **Change password:**
-  - From the dashboard: **System → Security**.
-  - From the CLI: `sudo roguelink set-password`.
-- **Networks page:** scan adapters, save networks (SSID/PSK/note),
-  collapse/expand each saved network for full observation/connection
-  history, and connect from a stored profile.
-- **WAN page:** scan + connect, "Use saved network" dropdown, and a
-  Connection Health card driven by `health_manager`.
-- **System page:** Pi 5 fan profile control (quiet/balanced/performance/max
-  /custom), speed test runner, password change form, firewall status,
-  drivers, zram/temperature.
-- **Overview page:** Network Health card, Speed Test card, Nearby/Saved
-  Networks card, plus the existing platform/firewall summary.
-- **Logs page:** daemon, setup, wan, ap, lan, firewall, networks,
-  speedtest, health.
+### Pages
 
-### Signal strength reference
+| Page        | Description |
+|-------------|-------------|
+| Overview    | Management/WAN/AP/LAN status, health, speedtest, networks summary |
+| Adapters    | Detected adapters, role assignment, TX power, power save, reset |
+| Networks    | Wi-Fi scan (parsed table), save/connect/edit/delete networks |
+| Management  | Management interface config and reconnect |
+| WAN         | Scan, connect, disconnect, saved network connect, health detail |
+| AP          | Start/stop access point, connected clients |
+| LAN         | Start/stop eth0 LAN bridge, DHCP clients |
+| System      | Platform info, drivers, firewall, fan control, speedtest, password |
+| Logs        | Tabbed log viewer: daemon, setup, WAN, AP, LAN, firewall, networks, speedtest, health |
 
-| Signal       | Quality   |
-|--------------|-----------|
-| ≥ −50 dBm    | excellent |
-| −51..−60 dBm | good      |
-| −61..−70 dBm | fair      |
-| −71..−80 dBm | weak      |
-| < −80 dBm    | poor      |
+### Networks page
 
-## Default network topology
+- **Scan:** Select an adapter, click **Scan now** → nearby networks appear in a
+  clean table (SSID, BSSID, signal dBm, quality, channel, band, security,
+  interface, actions).
+- **Save:** Click the Save button next to a scanned network or use the manual
+  form below the table.
+- **Saved networks:** Collapsible cards showing signal history, connection
+  attempts, edit/connect/delete controls.
+
+---
+
+## CLI
 
 ```
-upstream Wi-Fi  ─── USB Wi-Fi #1 (WAN, RTL8812AU/88x2BU)
-                      │
-                  [ RogueLink ]──── USB Wi-Fi #2 (AP, MT7612U)  → 10.42.0.0/24
-                      │                                            (DHCP via dnsmasq)
-                      ├─ onboard Pi Wi-Fi (management) → dashboard at :8080
-                      └─ eth0 (LAN)                    → 10.42.1.0/24 (optional)
+roguelink                          # status banner
+roguelink status                   # same as above
+roguelink adapters                 # list adapters and roles
+roguelink dashboard                # show dashboard URL
+
+# Networks
+roguelink networks scan --iface wlan3
+roguelink networks scan --iface wlan2 --json
+roguelink networks saved
+roguelink networks save --ssid "MyNet" --psk "pass123" --note "home"
+roguelink networks connect <id>
+
+# WAN
+roguelink wan connect --iface wlan2 --ssid "Uplink" --psk "secret"
+roguelink wan disconnect
+
+# AP
+roguelink ap start --iface wlan3 --ssid "RogueLink-AP" --psk "password"
+roguelink ap stop
+
+# LAN
+roguelink lan start --iface eth0
+roguelink lan stop
+
+# Health
+roguelink health
+roguelink health --json
+
+# Speedtest
+roguelink speedtest
+roguelink speedtest --json
+roguelink speedtest last
+
+# Fan
+roguelink fan status
+roguelink fan set quiet
+roguelink fan set balanced
+roguelink fan set performance
+roguelink fan set max
+
+# Driver audit
+roguelink system driver-audit
+roguelink system driver-audit --json
+roguelink system verify-driver rtl8812au
+roguelink system verify-driver mt7612u
+roguelink system verify-driver rtl88x2bu
+roguelink system verify-driver rtl8188eus
+roguelink system driver-diag
+roguelink system driver-diag --iface wlan2
+
+# Driver install
+sudo roguelink system install-driver rtl8812au
+sudo roguelink system install-driver mt7612u
+
+# System
+roguelink system info
+sudo roguelink system apply-pi5
+
+# Firewall
+roguelink firewall status
+sudo roguelink firewall reapply
+sudo roguelink firewall flush
+
+# Logs
+roguelink logs daemon
+roguelink logs wan
+roguelink logs ap
 ```
 
-NAT/forwarding is implemented with **nftables** (`inet roguelink` for
-filter, `ip roguelink_nat` for postrouting). The ruleset is rendered each
-time WAN/AP/LAN state changes so the firewall always matches reality.
+---
 
-## Management interface behavior
+## Health check
 
-- Only the onboard Pi Wi-Fi may hold the `management` role.
-- Reassignment to a non-onboard interface is rejected.
-- `roguelink mgmt connect` configures and brings up the management Wi-Fi
-  using `wpa_supplicant`.
-- The dashboard binds on `0.0.0.0` but the firewall only opens the API
-  port on the management interface.
+The health check uses a **split connectivity model**:
 
-## Raspberry Pi 5 setup
+| Field                | Description |
+|----------------------|-------------|
+| **Overall**          | excellent / good / partial / weak / unstable / offline |
+| **Management Internet** | Whether the management interface has internet |
+| **WAN status**       | connected / not_configured |
+| **DNS**              | OK / Failing |
+| **Gateway**          | Default gateway IP and ping result |
+| **RTT / Loss**       | Public ping latency and packet loss |
+| **Signal**           | WAN Wi-Fi signal dBm (if applicable) |
+| **Reason**           | Human-readable explanation |
 
-`roguelink system apply-pi5` writes three blocks to `/boot/firmware/config.txt`
-(or `/boot/config.txt`), each preceded by a backup copy:
+The health check does **not** report `offline` when gateway ping, internet
+ping, and DNS are all OK. If WAN is not configured but the management
+interface has internet, it reports `good` or `partial` with
+`wan: not_configured`.
 
-- **Active Cooler thresholds** (`fan_temp0..3`) for safe sustained load.
-- **PCIe Gen 3** for NVMe (`dtparam=pciex1`, `dtparam=pciex1_gen=3`).
-- **Light overclock** (`arm_freq=2600`, `over_voltage_delta=20000`).
+---
 
-It also writes `/etc/default/zramswap` for **2 GB zram** (zstd, 50% target,
-priority 100).
+## Driver strategies
 
-GPU memory is **not** written on Pi 5 — Pi 5 manages it dynamically
-(see `external/Ghostlink-Mini/docs/raspberry_pi_compatibility.md`).
+### RTL8812AU (critical)
 
-After applying, the CLI tells you whether a reboot is required.
+**Primary driver:** `aircrack-ng/rtl8812au` branch `v5.6.4.2`
 
-## Driver strategy
+```
+Strategy:
+1. Remove stale DKMS variants
+2. Unload conflict modules: rtw_8812au, rtw88_8812au, rtl8xxxu, 8812au, 88XXau
+3. Blacklist via /etc/modprobe.d/roguelink-rtl8812au.conf:
+   - blacklist rtw_8812au
+   - blacklist rtw88_8812au
+   - blacklist rtl8xxxu
+   - options 88XXau rtw_led_ctrl=0
+4. Clone: git clone -b v5.6.4.2 --single-branch https://github.com/aircrack-ng/rtl8812au.git /usr/src/rtl8812au
+5. Patch Makefile:
+   - CONFIG_PLATFORM_I386_PC = n
+   - CONFIG_PLATFORM_ARM64_RPI = y  (on arm64/aarch64)
+   - CONFIG_PLATFORM_ARM_RPI = y    (on 32-bit ARM)
+6. Build: ARCH=arm64 make dkms_install
+7. Load: modprobe 88XXau
+8. Verify: modinfo 88XXau, lsmod, USB ID 0bda:8812
+```
 
-| Chipset    | Approach |
-|------------|----------|
-| MT7612U    | In-kernel `mt76x2u` stack. We install `firmware-misc-nonfree`; no DKMS clone. |
-| RTL8812AU  | DKMS install of aircrack-ng `v5.6.4.2`; fallback to morrownr `8812au-20210820`. Conflicting in-tree modules are blacklisted via `/etc/modprobe.d/roguelink-rtl8812au.conf`. |
-| RTL88x2BU  | DKMS install of morrownr `88x2bu-20210702`. |
-| RTL8188EUS | DKMS install of aircrack-ng `rtl8188eus`. |
+**Fallback:** `morrownr/8812au-20210820` (module: `8812au`). Dashboard/CLI
+will show a warning when the fallback is active.
 
-Run `sudo roguelink system install-driver <chipset>` to attempt an install
-on demand. Driver detection (which modules are visible/loaded) is shown on
-the System page.
+### MT7612U
 
-## Ghostlink-Mini reference summary
+Uses the **in-kernel mt76 stack** — no third-party DKMS.
 
-The reference project at `external/Ghostlink-Mini/docs/` informed several
-RogueLink decisions:
+```
+Required modules: mt76, mt76_usb, mt76x2_common, mt76x2u
+Firmware: firmware-misc-nonfree (mt7662u.bin, mt7662u_rom_patch.bin)
+USB IDs: 0e8d:7612, 0e8d:761a, 2001:3a02, 0b05:17d1, 148f:7612, 13b1:003e
+Preferred role: AP
+```
 
-- **`mt7612u_strategy.md`** — confirms the in-kernel `mt76x2u` path,
-  required firmware package, and stable USB-ID adapter detection.
-- **`rtl8812au_strategy.md`** — DKMS install pipeline, ARM64 Makefile
-  patches, blacklist of conflicting in-tree modules, USB-ID binding.
-- **`raspberry_pi_compatibility.md`** — Pi 5 specifics: 2 GB zram,
-  `arm_freq=2600`, Active Cooler thresholds, PCIe Gen 3, GPU memory
-  firmware-managed on Pi 5, target Trixie/Bookworm.
+MT7612U setup does **not** touch Realtek configs or modules.
 
-USB ID lists, role priorities, and the management-interface protection
-model are adapted directly from Ghostlink-Mini (`src/core/network.py`,
-`src/core/config.py`).
+### RTL88x2BU
 
-## File locations
+- Driver: `morrownr/88x2bu-20210702`
+- Modules: `88x2bu`, `rtw_8822bu`, `rtw88_8822bu`
+- USB ID: `0bda:b812`
+- Preferred role: WAN (AP possible but MT7612U preferred for AP)
 
-| Path | Purpose |
-|------|---------|
-| `/etc/roguelink/roguelink.toml` | Operator-editable config |
-| `/etc/roguelink/auth.json`      | Salted password hash (default admin / roguelink) |
-| `/var/lib/roguelink/`           | Adapter map, AP/WAN/LAN profiles, leases, runtime state |
-| `/var/lib/roguelink/networks.db`| Saved networks + observation/attempt history (SQLite) |
-| `/var/lib/roguelink/speedtest_last.json` | Last speed test result |
-| `/var/lib/roguelink/health_last.json`    | Last health check result |
-| `/var/lib/roguelink/fan_profile.json`    | Active fan profile metadata |
-| `/var/log/roguelink/`           | daemon, wan, ap, lan, firewall, networks, speedtest, health |
-| `/run/roguelink/`               | hostapd/dnsmasq/wpa_supplicant configs and pidfiles |
-| `/etc/systemd/system/roguelinkd.service` | systemd unit (sets WorkingDirectory + PYTHONPATH) |
-| `/opt/roguelink/`               | Installed package and venv |
-| `/usr/local/bin/roguelink`      | CLI launcher (sets PYTHONPATH=/opt/roguelink) |
+### RTL8188EUS
+
+- Driver: `aircrack-ng/rtl8188eus`
+- Modules: `8188eu`, `r8188eu`
+- USB ID: `2357:010c`
+- Role: fallback / test / 2.4GHz only
+
+---
+
+## Management IP binding
+
+The daemon binds to the **management interface IP** by default (not `0.0.0.0`).
+
+- Config key: `host = "auto"` in `/etc/roguelink/roguelink.toml`
+- `"auto"` resolves to the management interface IP at startup
+- If management IP cannot be detected, falls back to `127.0.0.1` (safe)
+- Set `host = "0.0.0.0"` explicitly only for development/debug
+
+```bash
+# Verify bind address:
+sudo ss -lntp | grep 8080
+# Should show: 192.168.x.x:8080, NOT 0.0.0.0:8080
+```
+
+---
+
+## Adapter controls
+
+From the **Adapters** page or CLI:
+
+- **TX power:** Read current dBm, set specific dBm, or set to auto
+- **Power save:** Toggle on/off
+- **Soft reset:** `ip link down/up`
+- **USB reset:** Re-authorize the USB device (when supported)
+- Unsupported operations show a clear message instead of failing silently
+
+---
+
+## Speedtest
+
+```bash
+roguelink speedtest             # run and show result
+roguelink speedtest --json      # JSON output
+roguelink speedtest last        # show last result without running
+```
+
+Results stored in `/var/lib/roguelink/speedtest_last.json`.
+Dashboard speedtest button shows results inline.
+
+---
+
+## Fan control (Pi 5)
+
+Profiles: `quiet`, `balanced`, `performance`, `max`, `custom`
+
+```bash
+roguelink fan status
+roguelink fan set balanced
+roguelink fan set performance
+```
+
+Config is written to `/boot/firmware/config.txt` with a backup. A reboot
+is required to activate changes.
+
+---
+
+## File layout
+
+```
+/opt/roguelink/              # Installed code
+/etc/roguelink/              # Configuration (roguelink.toml, auth.json)
+/var/lib/roguelink/           # Runtime state (networks.db, profiles, speedtest)
+/var/log/roguelink/           # Log files
+/run/roguelink/               # PID files, runtime configs
+/usr/local/bin/roguelink      # CLI launcher
+```
+
+---
 
 ## Known limitations
 
-- **Hardware-only checks** (driver build, hostapd start, dnsmasq DHCP,
-  scan, TX power set, USB reset) can only be validated on a real Pi.
-  Local syntax/import checks pass on any Python 3.11+ host.
-- **TX power control** depends on the driver and the regulatory domain.
-  Some chipsets reject `iw set txpower fixed`; the response is captured
-  and surfaced in the API/CLI output verbatim.
-- **USB reset** depends on safe USB-path detection (sysfs `authorized`
-  file). The Adapters page only renders the USB reset button when the
-  path was found.
-- **Speed test** depends on internet access plus the ability to reach the
-  speedtest.net server pool. The dashboard records the failure reason
-  when servers are unreachable.
-- **Wi-Fi scan** depends on adapter/driver state. Some adapters refuse
-  scans while associated to an AP; bring the interface down or use a
-  different adapter if scans return empty.
-- **Fan profile changes** modify `config.txt`. The block is rewritten
-  cleanly, but the firmware only applies the new thresholds after a
-  reboot. The dashboard surfaces a "reboot required" indicator.
-- The dashboard uses HTTP Basic. For production-grade access, terminate
-  TLS with a reverse proxy or enable a stronger auth layer.
-- nftables is mandatory; iptables-only systems are not supported.
-- Realtek out-of-tree drivers require kernel headers matching the running
-  kernel. The installer attempts `raspberrypi-kernel-headers` and
-  `linux-headers-$(uname -r)`.
+- RTL8812AU driver builds require kernel headers matching the running kernel.
+  If headers are unavailable, the driver install will fail with a clear message.
+- Fan control is Pi 5 specific; on other hardware it reports unsupported.
+- WAN/AP/LAN management requires root. The daemon runs as root by design.
+- Speedtest requires `speedtest-cli` (installed automatically).
+- Management interface must be on the onboard Broadcom Wi-Fi (`brcmfmac`).
+
+---
 
 ## Troubleshooting
 
-- **Daemon won't start:** `journalctl -u roguelinkd -e` and
-  `roguelink logs daemon`.
-- **No management IP:** `iw dev`, `ip addr show`, then
-  `roguelink mgmt connect --ssid ... --psk ...`.
-- **AP fails to start:** `roguelink logs ap` shows the hostapd/dnsmasq
-  output. Confirm the AP adapter chipset supports AP (`iw phy phyN info`).
-- **No internet on AP/LAN clients:** check `roguelink wan status`, then
-  `roguelink firewall status` and `roguelink firewall reapply`.
-- **Adapter role flipped after reboot:** RogueLink stores roles by USB
-  vendor:product ID under `/var/lib/roguelink/adapters.json`. If a
-  warning appears, run `roguelink adapters` to re-detect.
+### Dashboard not loading
+
+```bash
+sudo systemctl status roguelinkd --no-pager
+sudo ss -lntp | grep 8080
+roguelink dashboard
+```
+
+If `ss` shows `127.0.0.1:8080`, the management IP was not detected.
+Set `host = "<your-ip>"` in `/etc/roguelink/roguelink.toml` and restart.
+
+### Driver not loading
+
+```bash
+roguelink system driver-audit
+roguelink system verify-driver rtl8812au
+roguelink system driver-diag --iface wlan2
+dmesg | tail -50
+```
+
+### Health says "offline" incorrectly
+
+This was a known bug and has been fixed. The health check now uses a split
+model and does not report offline when gateway/internet/DNS checks succeed.
+
+### WAN not connecting
+
+```bash
+roguelink wan status
+roguelink networks scan --iface <iface>
+roguelink health
+journalctl -u roguelinkd -n 50
+```
+
+---
+
+## License
+
+MIT

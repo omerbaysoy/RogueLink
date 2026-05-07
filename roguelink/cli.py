@@ -9,7 +9,7 @@ fresh install can still bootstrap the device.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import typer
 from rich.console import Console
@@ -142,7 +142,7 @@ def _print_banner() -> None:
             console.print(f"  [yellow]![/yellow] {w}")
 
 
-def _fmt_role(active: Optional[bool], text_active: str, text_inactive: str) -> str:
+def _fmt_role(active, text_active: str, text_inactive: str) -> str:
     if active:
         return f"[green]{text_active}[/green]"
     return f"[dim]{text_inactive}[/dim]"
@@ -379,6 +379,81 @@ def system_apply_pi5() -> None:
 def system_install_driver(chipset: str = typer.Argument(..., help="rtl8812au|rtl88x2bu|rtl8188eus|mt7612u")) -> None:
     res = driver_manager.install_for(chipset)
     console.print(json.dumps(res, indent=2))
+
+
+@sys_app.command("verify-driver")
+def system_verify_driver(chipset: str = typer.Argument(..., help="rtl8812au|rtl88x2bu|rtl8188eus|mt7612u")) -> None:
+    """Verify driver installation status for a specific chipset."""
+    res = driver_manager.verify_driver(chipset)
+    if res.get("error"):
+        console.print(f"[red]{res['error']}[/red]")
+        raise typer.Exit(2)
+    ok = res.get("ok", False)
+    color = "green" if ok else "yellow"
+    console.print(f"[{color}]{res['label']}[/{color}] — {res.get('capabilities', '')}")
+    console.print(f"  Kind: {res.get('kind')}")
+    for m in res.get("modules", []):
+        avail = "[green]✓[/green]" if m["available"] else "[red]✗[/red]"
+        loaded = "[green]loaded[/green]" if m["loaded"] else "[dim]not loaded[/dim]"
+        console.print(f"  {m['module']}: {avail} {loaded}")
+    if res.get("loaded_module"):
+        console.print(f"  Active module: [bold]{res['loaded_module']}[/bold]")
+    if res.get("bound_ifaces"):
+        console.print(f"  Bound interfaces: {', '.join(res['bound_ifaces'])}")
+    if res.get("using_fallback"):
+        console.print(f"  [yellow]⚠ {res.get('fallback_warning', 'Using fallback driver')}[/yellow]")
+    if res.get("blacklist"):
+        bl = res["blacklist"]
+        if bl.get("exists"):
+            if bl.get("missing"):
+                console.print(f"  [yellow]Blacklist missing: {bl['missing']}[/yellow]")
+            else:
+                console.print(f"  Blacklist: [green]OK[/green]")
+        else:
+            console.print(f"  [yellow]Blacklist conf not found[/yellow]")
+    if res.get("firmware_files"):
+        for fw, ok_fw in res["firmware_files"].items():
+            st = "[green]✓[/green]" if ok_fw else "[red]✗ missing[/red]"
+            console.print(f"  Firmware: {fw} {st}")
+    if res.get("dkms_status"):
+        console.print(f"  DKMS: {res['dkms_status']}")
+    if res.get("makefile_arm"):
+        ma = res["makefile_arm"]
+        if ma.get("exists"):
+            console.print(f"  Makefile: i386=n:{ma['i386_disabled']} arm64=y:{ma['arm64_enabled']} arm=y:{ma['arm_enabled']}")
+    for fix in res.get("recommended_fixes", []):
+        console.print(f"  [yellow]→ {fix}[/yellow]")
+
+
+@sys_app.command("driver-audit")
+def system_driver_audit(
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Audit all supported drivers."""
+    audit = driver_manager.driver_audit()
+    if json_output:
+        console.print(json.dumps(audit, indent=2, default=str))
+        return
+    for entry in audit:
+        ok = entry.get("ok", False)
+        color = "green" if ok else "yellow"
+        status_icon = "✓" if ok else "⚠"
+        loaded = entry.get("loaded_module") or "none"
+        console.print(
+            f"[{color}]{status_icon} {entry['label']}[/{color}] "
+            f"— loaded: {loaded}, bound: {', '.join(entry.get('bound_ifaces', [])) or 'none'}"
+        )
+        for fix in entry.get("recommended_fixes", []):
+            console.print(f"    [yellow]→ {fix}[/yellow]")
+
+
+@sys_app.command("driver-diag")
+def system_driver_diag(
+    iface: str = typer.Option("", "--iface", help="Diagnose a specific interface"),
+) -> None:
+    """Driver diagnostics for one or all interfaces."""
+    res = driver_manager.driver_diag(iface or None)
+    console.print(json.dumps(res, indent=2, default=str))
 
 
 @app.command("firewall")
@@ -636,15 +711,25 @@ def health_default(
     color = {
         "excellent": "green",
         "good": "green",
+        "partial": "yellow",
         "weak": "yellow",
         "unstable": "yellow",
         "offline": "red",
     }.get(res.get("status", ""), "white")
-    console.print(f"[{color}]Health:[/{color}] {res.get('status')}")
+    console.print(f"[{color}]Overall:[/{color}] {res.get('status')}")
+    if res.get("reason"):
+        console.print(f"  Reason: {res['reason']}")
+    console.print(f"  Management Internet: {'OK' if res.get('management_internet') else 'No'}")
+    console.print(f"  WAN: {res.get('wan_status', '—')}")
+    console.print(f"  DNS: {'OK' if res.get('dns_ok') else 'Failing'}")
     console.print(
-        f"  rtt={summary.get('rtt_ms')} ms, loss={summary.get('packet_loss_pct')}%, "
-        f"gw={summary.get('gateway')}, iface={summary.get('wan_iface')}, "
-        f"signal={summary.get('signal_dbm')} dBm"
+        f"  Gateway: {summary.get('gateway', '—')} · "
+        f"RTT: {summary.get('rtt_ms', '—')} ms · "
+        f"Loss: {summary.get('packet_loss_pct', '—')}%"
+    )
+    console.print(
+        f"  Internet iface: {summary.get('wan_iface', '—')} · "
+        f"Signal: {summary.get('signal_dbm', '—')} dBm"
     )
 
 

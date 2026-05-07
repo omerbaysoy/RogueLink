@@ -2,7 +2,9 @@
 # during install (the installer does this for you) and edit values as needed.
 
 [general]
-host = "0.0.0.0"
+# "auto" resolves to the management interface IP at startup.
+# Set to "0.0.0.0" only for development/debug (exposes on all interfaces).
+host = "auto"
 api_port = 8080
 country_code = "US"
 log_level = "INFO"

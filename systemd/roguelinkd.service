@@ -1,6 +1,6 @@
 [Unit]
 Description=RogueLink router daemon (Rogue Network Tool)
-Documentation=https://github.com/
+Documentation=https://github.com/omerbaysoy/RogueLink
 After=network.target
 Wants=network.target
 

@@ -692,6 +692,11 @@ def run_server(host: Optional[str] = None, port: Optional[int] = None) -> None:
     import uvicorn
 
     cfg = roguelink_config.load()
-    h = host or cfg.get("general", {}).get("host", "0.0.0.0")
+    h = host or cfg.get("general", {}).get("host", "auto")
     p = port or cfg.get("general", {}).get("api_port", 8080)
+    # "auto" should have been resolved by daemon.py; fallback here is a safety net.
+    if h == "auto":
+        from .services import management_manager
+        h = management_manager.get_management_ip() or "127.0.0.1"
+    print(f"[roguelinkd] Binding to {h}:{p}", flush=True)
     uvicorn.run(app, host=h, port=int(p), log_level="info")

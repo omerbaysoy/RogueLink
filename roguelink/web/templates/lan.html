@@ -11,13 +11,15 @@
 
 <section class="card">
   <h2>Controls</h2>
-  <form method="post" action="/api/lan/start">
+  <form data-api="/api/lan/start" method="post">
     <label>Interface <input name="iface" value="{{ lan.iface or cfg.lan.iface }}"></label>
     <button type="submit">Start LAN</button>
   </form>
-  <form method="post" action="/api/lan/stop">
+  <div class="api-result" id="result-lan-start"></div>
+  <form data-api="/api/lan/stop" method="post">
     <button type="submit">Stop LAN</button>
   </form>
+  <div class="api-result" id="result-lan-stop"></div>
 </section>
 
 <section class="card">

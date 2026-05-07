@@ -13,7 +13,7 @@
 
 <section class="card">
   <h2>Start AP</h2>
-  <form method="post" action="/api/ap/start">
+  <form data-api="/api/ap/start" method="post">
     <label>Interface
       <select name="iface" required>
         {% for ad in adapters %}
@@ -29,9 +29,11 @@
     <label>Country <input name="country" value="{{ cfg.ap.country_code or cfg.general.country_code }}" maxlength="2"></label>
     <button type="submit">Start AP</button>
   </form>
-  <form method="post" action="/api/ap/stop">
+  <div class="api-result" id="result-ap-start"></div>
+  <form data-api="/api/ap/stop" method="post">
     <button type="submit">Stop AP</button>
   </form>
+  <div class="api-result" id="result-ap-stop"></div>
 </section>
 
 <section class="card">

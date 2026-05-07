@@ -10,14 +10,16 @@
 
 <section class="card">
   <h2>Configure</h2>
-  <form method="post" action="/api/management/configure">
+  <form data-api="/api/management/configure" method="post">
     <label>SSID <input name="ssid" value="{{ cfg.management.ssid }}" required></label>
     <label>PSK <input name="psk" type="password" value="{{ cfg.management.psk }}"></label>
     <label>Country <input name="country" value="{{ cfg.general.country_code }}" maxlength="2"></label>
     <button type="submit">Save</button>
   </form>
-  <form method="post" action="/api/management/connect">
+  <div class="api-result" id="result-mgmt-configure"></div>
+  <form data-api="/api/management/connect" method="post">
     <button type="submit">(Re)connect</button>
   </form>
+  <div class="api-result" id="result-mgmt-connect"></div>
 </section>
 {% endblock %}

@@ -48,9 +48,10 @@
     <h2>Firewall</h2>
     <p><strong>Active:</strong> {{ "Yes" if data.firewall.active else "No" }}</p>
     <p><strong>Ruleset:</strong> {{ data.firewall.ruleset_path }}</p>
-    <form method="post" action="/api/firewall/reapply">
+    <form data-api="/api/firewall/reapply" method="post">
       <button type="submit">Reapply</button>
     </form>
+    <div class="api-result" id="result-firewall"></div>
   </div>
 
   <div class="card">
@@ -64,7 +65,10 @@
     {% else %}
     <p class="muted">No health check on record.</p>
     {% endif %}
-    <form method="post" action="/api/health/check"><button type="submit">Run health check</button></form>
+    <form data-api="/api/health/check" method="post" data-render="health">
+      <button type="submit">Run health check</button>
+    </form>
+    <div class="api-result" id="result-health"></div>
   </div>
 
   <div class="card">
@@ -78,7 +82,10 @@
     {% else %}
     <p class="muted">No speed test on record.</p>
     {% endif %}
-    <form method="post" action="/api/speedtest/run"><button type="submit">Run speed test</button></form>
+    <form data-api="/api/speedtest/run" method="post" data-render="speedtest">
+      <button type="submit">Run speed test</button>
+    </form>
+    <div class="api-result" id="result-speedtest"></div>
   </div>
 
   <div class="card">
