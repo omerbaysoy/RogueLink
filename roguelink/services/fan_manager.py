@@ -1,4 +1,8 @@
-"""Pi 5 fan profile control. Writes a managed block to config.txt."""
+"""Pi 5 fan profile control. Writes a managed block to config.txt.
+
+Handles read-only /boot/firmware by detecting mount mode and temporarily
+remounting read-write when needed.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +13,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from .. import paths
-from ..utils import append_log, load_json, read_text, save_json
+from ..utils import append_log, load_json, read_text, run, save_json, write_text
 from . import system_manager
 
 
@@ -84,6 +88,83 @@ def _strip_existing_block(text: str) -> str:
     return "\n".join(out_lines).rstrip() + "\n"
 
 
+# ---------------------------------------------------------------------------
+# Mount helpers for read-only boot partitions
+# ---------------------------------------------------------------------------
+
+def _detect_mount_info(path: str) -> Dict[str, Any]:
+    """Detect mount point and options for the given path."""
+    info: Dict[str, Any] = {"path": path, "mount_point": None, "readonly": False}
+
+    # Use findmnt to get mount point
+    out, code = run(f"findmnt -n -o TARGET --target {path}")
+    if code == 0 and out.strip():
+        info["mount_point"] = out.strip()
+    else:
+        # Fallback: check common boot mount points
+        for mp in ("/boot/firmware", "/boot"):
+            if path.startswith(mp) and os.path.ismount(mp):
+                info["mount_point"] = mp
+                break
+
+    if not info["mount_point"]:
+        return info
+
+    # Check if read-only
+    opts_out, opts_code = run(f"findmnt -n -o OPTIONS --target {path}")
+    if opts_code == 0 and opts_out.strip():
+        opts = opts_out.strip().split(",")
+        info["options"] = opts
+        info["readonly"] = "ro" in opts
+    else:
+        # Fallback: check /proc/mounts
+        mounts = read_text("/proc/mounts")
+        for line in mounts.splitlines():
+            parts = line.split()
+            if len(parts) >= 4 and parts[1] == info["mount_point"]:
+                info["readonly"] = "ro" in parts[3].split(",")
+                break
+
+    return info
+
+
+def _ensure_writable(mount_point: str) -> Dict[str, Any]:
+    """Remount the partition read-write if needed. Returns status dict."""
+    result: Dict[str, Any] = {
+        "mount_point": mount_point,
+        "was_readonly": False,
+        "remounted": False,
+        "error": None,
+    }
+
+    mount_info = _detect_mount_info(mount_point)
+    if not mount_info.get("readonly"):
+        return result
+
+    result["was_readonly"] = True
+    cmd = f"mount -o remount,rw {mount_point}"
+    out, code = run(cmd, timeout=10)
+    if code != 0:
+        result["error"] = (
+            f"Failed to remount {mount_point} read-write. "
+            f"Try manually: sudo {cmd}"
+        )
+        result["output"] = out
+        return result
+
+    result["remounted"] = True
+    return result
+
+
+def _restore_readonly(mount_point: str) -> None:
+    """Remount back to read-only if it was originally ro."""
+    run(f"mount -o remount,ro {mount_point}", timeout=10)
+
+
+# ---------------------------------------------------------------------------
+# Apply profile
+# ---------------------------------------------------------------------------
+
 def apply_profile(profile: str, custom_points: Optional[List[Dict[str, int]]] = None) -> Dict[str, Any]:
     if profile == "custom":
         points = custom_points or []
@@ -103,16 +184,50 @@ def apply_profile(profile: str, custom_points: Optional[List[Dict[str, int]]] = 
     if not config_path:
         return {"ok": False, "error": "boot config.txt not found"}
 
+    # Detect mount point and handle read-only
+    mount_info = _detect_mount_info(config_path)
+    mount_point = mount_info.get("mount_point")
+    was_readonly = mount_info.get("readonly", False)
+    remount_result = None
+
+    if was_readonly and mount_point:
+        remount_result = _ensure_writable(mount_point)
+        if remount_result.get("error"):
+            return {
+                "ok": False,
+                "error": remount_result["error"],
+                "mount_point": mount_point,
+                "original_mode": "ro",
+                "remount_result": "failed",
+                "recommended_fix": f"sudo mount -o remount,rw {mount_point}",
+            }
+
     backup = _backup(config_path)
     text = read_text(config_path)
     cleaned = _strip_existing_block(text)
     block = _render_block(profile, points)
     new_text = cleaned.rstrip() + ("\n\n" if cleaned.strip() else "") + block
+
     try:
         with open(config_path, "w", encoding="utf-8") as f:
             f.write(new_text)
+        # Sync to ensure write is flushed to disk
+        os.sync()
     except OSError as exc:
-        return {"ok": False, "error": f"write failed: {exc}", "backup": backup}
+        # Restore readonly if we remounted
+        if was_readonly and mount_point:
+            _restore_readonly(mount_point)
+        return {
+            "ok": False,
+            "error": f"write failed: {exc}",
+            "backup": backup,
+            "mount_point": mount_point,
+            "original_mode": "ro" if was_readonly else "rw",
+        }
+
+    # Restore read-only mount if it was originally ro
+    if was_readonly and mount_point:
+        _restore_readonly(mount_point)
 
     save_json(
         paths.FAN_PROFILE_PATH,
@@ -126,6 +241,7 @@ def apply_profile(profile: str, custom_points: Optional[List[Dict[str, int]]] = 
         mode=0o644,
     )
     append_log(paths.DAEMON_LOG, f"fan profile applied: {profile} -> {config_path} (backup={backup})")
+
     return {
         "ok": True,
         "profile": profile,
@@ -133,6 +249,9 @@ def apply_profile(profile: str, custom_points: Optional[List[Dict[str, int]]] = 
         "config_path": config_path,
         "backup": backup,
         "block": block,
+        "mount_point": mount_point,
+        "original_mode": "ro" if was_readonly else "rw",
+        "remount_result": "success" if was_readonly else "not_needed",
         "reboot_required": True,
     }
 

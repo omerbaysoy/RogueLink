@@ -26,9 +26,10 @@ systemctl disable roguelinkd.service 2>/dev/null || true
 rm -f /etc/systemd/system/roguelinkd.service
 systemctl daemon-reload
 
-log "Removing /opt/roguelink and CLI"
+log "Removing /opt/roguelink and CLI launchers"
 rm -rf /opt/roguelink
 rm -f /usr/local/bin/roguelink
+rm -f /usr/local/bin/ghostlink
 
 log "Flushing nftables tables (best effort)"
 nft delete table inet roguelink 2>/dev/null || true

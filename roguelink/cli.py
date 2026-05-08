@@ -9,6 +9,8 @@ fresh install can still bootstrap the device.
 from __future__ import annotations
 
 import json
+import os
+import sys
 from typing import Any, Dict, Optional
 
 import typer
@@ -72,11 +74,20 @@ ASCII_BANNER = r"""
 """
 
 
+def _is_ghostlink() -> bool:
+    """Detect if CLI was invoked as 'ghostlink'."""
+    return os.environ.get("ROGUELINK_ALIAS") == "ghostlink" or \
+           "ghostlink" in os.path.basename(sys.argv[0] if sys.argv else "").lower()
+
+
 def _print_banner() -> None:
     console.print(Text(ASCII_BANNER, style="bold green"))
-    console.print(f"[bold green]{__title__}[/bold green]  [dim]{__subtitle__}[/dim]  v{__version__}")
+    subtitle_extra = ""
+    if _is_ghostlink():
+        subtitle_extra = "  [dim italic](ghostlink — compatibility alias for RogueLink)[/dim italic]"
+    console.print(f"[bold green]{__title__}[/bold green]  [dim]{__subtitle__}[/dim]  v{__version__}{subtitle_extra}")
     overview = metrics.overview()
-    sys = overview["system"]
+    sysinfo = overview["system"]
     mgmt = overview["management"]
     wan = overview["wan"]
     ap = overview["ap"]
@@ -118,17 +129,17 @@ def _print_banner() -> None:
     )
     table.add_row(
         "Daemon",
-        "[green]active[/green]" if sys["daemon"]["active"] else f"[yellow]{sys['daemon']['raw']}[/yellow]",
+        "[green]active[/green]" if sysinfo["daemon"]["active"] else f"[yellow]{sysinfo['daemon']['raw']}[/yellow]",
     )
     table.add_row(
         "Temperature",
-        f"{sys['temperature_c']} °C" if sys.get("temperature_c") is not None else "—",
+        f"{sysinfo['temperature_c']} °C" if sysinfo.get("temperature_c") is not None else "—",
     )
     console.print(table)
 
     warnings = []
     warnings.extend(overview.get("adapter_warnings") or [])
-    if not sys["daemon"]["active"]:
+    if not sysinfo["daemon"]["active"]:
         warnings.append("roguelinkd is not active; run: sudo systemctl start roguelinkd")
     if not fw.get("active"):
         warnings.append("Firewall ruleset is not loaded; run: sudo roguelink firewall reapply")
@@ -140,6 +151,31 @@ def _print_banner() -> None:
         console.print("\n[bold yellow]Warnings[/bold yellow]")
         for w in warnings:
             console.print(f"  [yellow]![/yellow] {w}")
+
+    # Print useful commands
+    cli_name = "ghostlink" if _is_ghostlink() else "roguelink"
+    console.print(f"\n[bold]Commands:[/bold]")
+    cmds = [
+        (f"{cli_name} status", "Show status"),
+        (f"{cli_name} adapters", "List adapters"),
+        (f"{cli_name} networks scan --iface <iface>", "Scan Wi-Fi"),
+        (f"{cli_name} networks saved", "List saved networks"),
+        (f"{cli_name} wan connect --iface <iface> --ssid <SSID> --psk <PSK>", "Connect WAN"),
+        (f"{cli_name} wan diag --iface <iface>", "WAN diagnostics"),
+        (f"{cli_name} ap start --iface <iface> --ssid <SSID> --psk <PSK>", "Start AP"),
+        (f"{cli_name} lan start --iface eth0", "Start LAN"),
+        (f"{cli_name} health", "Health check"),
+        (f"{cli_name} speedtest", "Speed test"),
+        (f"{cli_name} system driver-audit", "Driver audit"),
+        (f"{cli_name} fan status", "Fan status"),
+        (f"{cli_name} --help", "Full help"),
+    ]
+    cmd_table = Table(show_header=False, box=None, pad_edge=False, padding=(0, 2))
+    cmd_table.add_column(style="cyan")
+    cmd_table.add_column(style="dim")
+    for cmd, desc in cmds:
+        cmd_table.add_row(cmd, desc)
+    console.print(cmd_table)
 
 
 def _fmt_role(active, text_active: str, text_inactive: str) -> str:
@@ -163,6 +199,14 @@ def root(ctx: typer.Context) -> None:
 def status() -> None:
     """Show RogueLink overall status."""
     _print_banner()
+
+
+@app.command("help")
+def help_cmd(ctx: typer.Context) -> None:
+    """Show help information."""
+    # Re-invoke with --help so typer prints the full help text.
+    ctx.parent.info_name = "ghostlink" if _is_ghostlink() else "roguelink"
+    console.print(ctx.parent.get_help())
 
 
 @app.command()
@@ -294,6 +338,15 @@ def wan_disconnect() -> None:
     res = wan_manager.disconnect()
     _reapply_firewall()
     console.print(json.dumps(res, indent=2))
+
+
+@wan_app.command("diag")
+def wan_diag(
+    iface: str = typer.Option(..., "--iface"),
+) -> None:
+    """Run diagnostics on a WAN interface."""
+    res = wan_manager.diag(iface)
+    console.print(json.dumps(res, indent=2, default=str))
 
 
 # ---------------------------------------------------------------------------

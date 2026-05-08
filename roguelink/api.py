@@ -181,6 +181,16 @@ def api_wan_disconnect(_: str = Depends(require_auth)):
     return result
 
 
+@app.get("/api/wan/diag")
+def api_wan_diag(iface: str = "", _: str = Depends(require_auth)):
+    """Run WAN diagnostics on an interface."""
+    if not iface:
+        wan = wan_manager.status()
+        iface = wan.get("iface") or ""
+    if not iface:
+        return {"error": "no WAN interface specified or detected"}
+    return wan_manager.diag(iface)
+
 @app.get("/api/ap")
 def api_ap(_: str = Depends(require_auth)):
     data = ap_manager.status()

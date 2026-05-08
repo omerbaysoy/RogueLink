@@ -48,6 +48,21 @@
     <button type="submit">Disconnect</button>
   </form>
   <div class="api-result" id="result-wan-disconnect"></div>
+
+  <h3>Diagnostics</h3>
+  <form action="javascript:void(0)" method="get" data-api="/api/wan/diag" data-method="GET" data-result="#result-wan-diag">
+    <label>Interface
+      <select name="iface">
+        {% for ad in adapters %}
+          {% if not ad.onboard %}
+          <option value="{{ ad.iface }}" {% if roles.wan == ad.iface %}selected{% endif %}>{{ ad.iface }} — {{ ad.chipset_label }}</option>
+          {% endif %}
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Run diagnostics</button>
+  </form>
+  <div class="api-result" id="result-wan-diag"></div>
 </section>
 
 <section class="card">
