@@ -292,6 +292,27 @@ def mgmt_connect(
     console.print(json.dumps(res, indent=2))
 
 
+@mgmt_app.command("lock-ip")
+def mgmt_lock_ip(
+    ip: str = typer.Option(..., "--ip", help="Static IP (e.g. 192.168.1.3)"),
+    gateway: str = typer.Option("", "--gateway", help="Gateway (e.g. 192.168.1.1)"),
+    dns: str = typer.Option("", "--dns", help="DNS servers comma-separated"),
+) -> None:
+    """Lock management interface to a static IP."""
+    res = management_manager.lock_ip(ip, gateway, dns)
+    console.print(json.dumps(res, indent=2))
+    if res.get("ok"):
+        console.print(f"[bold yellow]Dashboard will be at: http://{ip}:8080[/bold yellow]")
+
+
+@mgmt_app.command("dhcp")
+def mgmt_dhcp() -> None:
+    """Release static IP and return to DHCP."""
+    res = management_manager.release_dhcp()
+    console.print(json.dumps(res, indent=2))
+    if res.get("ip"):
+        console.print(f"[bold]Dashboard at: http://{res['ip']}:8080[/bold]")
+
 # ---------------------------------------------------------------------------
 # wan
 # ---------------------------------------------------------------------------

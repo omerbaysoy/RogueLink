@@ -1,9 +1,8 @@
 """Management interface: the onboard Pi Wi-Fi (brcmfmac).
 
 The role is protected — the daemon refuses to reassign the management slot
-to anything other than an onboard interface. We expose helpers to read the
-current management IP, edit the SSID/PSK profile, and (re)bring the
-interface up using wpa_supplicant.
+to anything other than an onboard interface. Exposes helpers to read the
+current management IP, SSID, gateway, mode, and lock/release static IP.
 """
 
 import os
@@ -11,27 +10,30 @@ import re
 import shlex
 import shutil
 import time
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from .. import config as roguelink_config
 from .. import paths, state
 from ..utils import (
     append_log,
     interface_exists,
+    load_json,
     read_text,
     run,
+    save_json,
     write_text,
 )
 
 MGMT_WPA_CONF = os.path.join(paths.RUN_DIR, "wpa_supplicant_mgmt.conf")
 MGMT_WPA_PID = os.path.join(paths.RUN_DIR, "wpa_supplicant_mgmt.pid")
+MGMT_STATIC_PATH = os.path.join(paths.LIB_DIR, "mgmt_static.json")
 
 
 def _wpa_conf(country: str, ssid: str, psk: str) -> str:
     if not psk:
         net = (
             f"network={{\n"
-            f"    ssid=\"{ssid}\"\n"
+            f'    ssid="{ssid}"\n'
             f"    key_mgmt=NONE\n"
             f"    priority=10\n"
             f"}}\n"
@@ -39,8 +41,8 @@ def _wpa_conf(country: str, ssid: str, psk: str) -> str:
     else:
         net = (
             f"network={{\n"
-            f"    ssid=\"{ssid}\"\n"
-            f"    psk=\"{psk}\"\n"
+            f'    ssid="{ssid}"\n'
+            f'    psk="{psk}"\n'
             f"    key_mgmt=WPA-PSK\n"
             f"    priority=10\n"
             f"}}\n"
@@ -64,11 +66,13 @@ def configure(ssid: str, psk: str, country: Optional[str] = None) -> Dict:
 
 
 def get_iface() -> Optional[str]:
+    """Get management interface — prefer adapter map, fallback to config."""
     roles = state.load_adapter_map()
     return roles.get("management") or roguelink_config.load().get("management", {}).get("iface")
 
 
 def get_management_ip() -> Optional[str]:
+    """Get the current IP of the management interface."""
     iface = get_iface()
     if not iface or not interface_exists(iface):
         return None
@@ -77,6 +81,48 @@ def get_management_ip() -> Optional[str]:
         return None
     m = re.search(r"inet\s+([0-9.]+)/", out or "")
     return m.group(1) if m else None
+
+
+def get_management_gateway() -> Optional[str]:
+    """Get gateway for management interface."""
+    iface = get_iface()
+    if not iface:
+        return None
+    out, _ = run(f"ip route show default dev {shlex.quote(iface)}")
+    m = re.search(r"default via ([0-9.]+)", out or "")
+    return m.group(1) if m else None
+
+
+def get_management_ssid() -> Optional[str]:
+    """Get SSID the management interface is connected to."""
+    iface = get_iface()
+    if not iface or not interface_exists(iface):
+        return None
+    out, _ = run(f"iw dev {shlex.quote(iface)} link")
+    if out and "Connected to" in out:
+        for line in out.splitlines():
+            line = line.strip()
+            if line.startswith("SSID:"):
+                return line.split(":", 1)[1].strip()
+    return None
+
+
+def get_management_mode() -> str:
+    """Return 'static' or 'dhcp' based on whether user locked a static IP."""
+    static = load_json(MGMT_STATIC_PATH, default={})
+    if static.get("enabled"):
+        return "static"
+    return "dhcp"
+
+
+def get_bind_host() -> str:
+    """Determine the host the daemon should bind to."""
+    cfg = roguelink_config.load()
+    host = cfg.get("general", {}).get("host", "auto")
+    if host and host != "auto":
+        return host
+    ip = get_management_ip()
+    return ip or "127.0.0.1"
 
 
 def dashboard_url(api_port: int) -> str:
@@ -113,19 +159,113 @@ def connect() -> Dict:
 
     if shutil.which("dhclient"):
         run(f"dhclient -v {shlex.quote(iface)}", timeout=30)
+    elif shutil.which("dhcpcd"):
+        run(f"dhcpcd -n {shlex.quote(iface)}", timeout=30)
     elif shutil.which("udhcpc"):
         run(f"udhcpc -i {shlex.quote(iface)} -n -q", timeout=30)
     time.sleep(1)
     return {"ok": True, "iface": iface, "ip": get_management_ip()}
 
 
+# ---------------------------------------------------------------------------
+# Static IP lock / DHCP release
+# ---------------------------------------------------------------------------
+
+def lock_ip(ip: str, gateway: str = "", dns: str = "") -> Dict:
+    """Lock a static IP on the management interface.
+
+    Uses ip addr/route directly (works on all Pi OS variants).
+    Saves config so it can be re-applied after reboot via the daemon.
+    """
+    iface = get_iface()
+    if not iface or not interface_exists(iface):
+        return {"ok": False, "error": "management interface not found"}
+
+    qi = shlex.quote(iface)
+
+    # Kill DHCP clients on this iface
+    run(f"pkill -f 'dhclient.*{qi}'")
+    run(f"pkill -f 'dhcpcd.*{qi}'")
+    time.sleep(0.3)
+
+    # Flush and assign
+    run(f"ip addr flush dev {qi}")
+    out, code = run(f"ip addr add {shlex.quote(ip)}/24 dev {qi}")
+    if code != 0:
+        return {"ok": False, "error": f"ip addr add failed: {out}"}
+
+    if gateway:
+        run(f"ip route del default dev {qi}")
+        run(f"ip route add default via {shlex.quote(gateway)} dev {qi}")
+
+    # DNS
+    dns_list = [d.strip() for d in dns.split(",") if d.strip()] if dns else []
+    if dns_list:
+        try:
+            lines = [f"nameserver {d}" for d in dns_list]
+            write_text("/etc/resolv.conf", "\n".join(lines) + "\n")
+        except OSError:
+            pass
+
+    # Save static config
+    save_json(MGMT_STATIC_PATH, {
+        "enabled": True, "ip": ip, "gateway": gateway,
+        "dns": dns_list, "iface": iface,
+        "applied_at": time.time(),
+    })
+
+    append_log(paths.DAEMON_LOG, f"management IP locked: {ip} gw={gateway}")
+    return {
+        "ok": True, "iface": iface, "ip": ip,
+        "gateway": gateway, "dns": dns_list, "mode": "static",
+        "warning": "Dashboard will now be at http://" + ip + ":8080",
+    }
+
+
+def release_dhcp() -> Dict:
+    """Release static IP and return to DHCP."""
+    iface = get_iface()
+    if not iface or not interface_exists(iface):
+        return {"ok": False, "error": "management interface not found"}
+
+    qi = shlex.quote(iface)
+    run(f"ip addr flush dev {qi}")
+
+    # Restart DHCP
+    if shutil.which("dhclient"):
+        run(f"dhclient -v {qi}", timeout=30)
+    elif shutil.which("dhcpcd"):
+        run(f"dhcpcd -n {qi}", timeout=30)
+
+    # Clear static config
+    save_json(MGMT_STATIC_PATH, {"enabled": False})
+
+    time.sleep(2)
+    new_ip = get_management_ip()
+    append_log(paths.DAEMON_LOG, f"management IP released to DHCP: {new_ip}")
+    return {
+        "ok": True, "iface": iface, "ip": new_ip,
+        "mode": "dhcp",
+        "warning": f"Dashboard may move to http://{new_ip}:8080" if new_ip else "",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Status
+# ---------------------------------------------------------------------------
+
 def status() -> Dict:
     iface = get_iface()
     operstate = (
-        read_text(f"/sys/class/net/{iface}/operstate") if iface and interface_exists(iface) else "missing"
+        read_text(f"/sys/class/net/{iface}/operstate")
+        if iface and interface_exists(iface) else "missing"
     )
     return {
         "iface": iface,
         "ip": get_management_ip(),
+        "gateway": get_management_gateway(),
+        "ssid": get_management_ssid(),
         "operstate": operstate,
+        "mode": get_management_mode(),
+        "bind_host": get_bind_host(),
     }

@@ -86,23 +86,45 @@
   }
 
   function renderSuccess(target, data) {
-    target.className = "api-result success";
     if (typeof data === "string") {
+      target.className = "api-result success";
       target.textContent = data;
       return;
     }
+    // Set class based on ok status
+    target.className = data.ok === false ? "api-result error" : "api-result success";
     var html = "";
+    // Status badge
     if (data.ok === true) html += '<p class="api-ok">\u2713 OK</p>';
     if (data.ok === false) html += '<p class="api-err">\u2717 Failed</p>';
+    // Primary fields
+    if (data.error) html += '<p class="api-err"><strong>Error:</strong> ' + escHtml(data.error) + "</p>";
     if (data.detail) html += '<p class="api-err">' + escHtml(data.detail) + "</p>";
-    if (data.error) html += '<p class="api-err">' + escHtml(data.error) + "</p>";
+    if (data.stage) html += "<p><strong>Stage:</strong> " + escHtml(data.stage) + "</p>";
+    if (data.reason) html += "<p><strong>Reason:</strong> " + escHtml(data.reason) + "</p>";
+    if (data.recommended_fix) html += '<p style="color:#ffa;"><strong>Fix:</strong> ' + escHtml(data.recommended_fix).replace(/\n/g, "<br>") + "</p>";
+    if (data.warning) html += '<p style="color:#ffa;"><strong>Warning:</strong> ' + escHtml(data.warning) + "</p>";
+    if (data.log_path) html += "<p><strong>Log:</strong> <code>" + escHtml(data.log_path) + "</code></p>";
     if (data.message) html += "<p>" + escHtml(data.message) + "</p>";
-    var skip = new Set([
-      "ok", "error", "message", "detail", "raw", "output",
-      "public_targets", "dns_targets", "gateway_ping", "dns_servers", "wan_signal"
-    ]);
+    // Show important result fields inline
+    var highlight = new Set(["ip", "gateway", "signal_dbm", "connected_ssid", "iface", "driver",
+      "wpa_backend_used", "dhcp_client", "mode", "profile", "reboot_required", "mount_point",
+      "ssid", "dns", "associated", "dhcp", "wpa_started", "bind_host"]);
+    var skip = new Set(["ok", "error", "message", "detail", "stage", "reason",
+      "recommended_fix", "warning", "log_path", "raw", "output", "stdout_tail", "stderr_tail",
+      "command", "public_targets", "dns_targets", "gateway_ping", "dns_servers", "wan_signal"]);
     Object.keys(data).forEach(function (k) {
       if (skip.has(k)) return;
+      var v = data[k];
+      if (v === null || v === undefined) return;
+      if (highlight.has(k)) {
+        var display = typeof v === "object" ? JSON.stringify(v) : String(v);
+        html += "<p><strong>" + escHtml(k) + ":</strong> " + escHtml(display) + "</p>";
+      }
+    });
+    // Non-highlighted remaining fields
+    Object.keys(data).forEach(function (k) {
+      if (skip.has(k) || highlight.has(k)) return;
       var v = data[k];
       if (v === null || v === undefined) return;
       if (typeof v === "object") {
@@ -111,6 +133,16 @@
         html += "<p><strong>" + escHtml(k) + ":</strong> " + escHtml(String(v)) + "</p>";
       }
     });
+    // Collapsed details for raw output
+    var hasDetails = data.output || data.stdout_tail || data.stderr_tail || data.command;
+    if (hasDetails) {
+      html += "<details><summary>Raw details</summary><pre style='max-height:300px;overflow:auto;font-size:0.8em;'>";
+      if (data.command) html += "Command: " + escHtml(data.command) + "\n\n";
+      if (data.output) html += escHtml(data.output) + "\n";
+      if (data.stdout_tail) html += "--- stdout ---\n" + escHtml(data.stdout_tail) + "\n";
+      if (data.stderr_tail) html += "--- stderr/diag ---\n" + escHtml(data.stderr_tail) + "\n";
+      html += "</pre></details>";
+    }
     target.innerHTML = html || "<p>Done.</p>";
   }
 

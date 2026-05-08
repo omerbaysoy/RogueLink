@@ -3,13 +3,18 @@
 <h1>Management Network</h1>
 
 <section class="card">
+  <h2>Status</h2>
   <p><strong>Interface:</strong> {{ mgmt.iface or "—" }}</p>
   <p><strong>IP:</strong> {{ mgmt.ip or "—" }}</p>
+  <p><strong>Gateway:</strong> {{ mgmt.gateway or "—" }}</p>
+  <p><strong>SSID:</strong> {{ mgmt.ssid or "—" }}</p>
   <p><strong>State:</strong> {{ mgmt.operstate }}</p>
+  <p><strong>Mode:</strong> {{ mgmt.mode or "dhcp" }}</p>
+  <p><strong>Bind host:</strong> {{ mgmt.bind_host or "—" }}</p>
 </section>
 
 <section class="card">
-  <h2>Configure</h2>
+  <h2>Wi-Fi Configuration</h2>
   <form action="javascript:void(0)" method="post" data-api="/api/management/configure" data-method="POST" data-result="#result-mgmt-configure">
     <label>SSID <input name="ssid" value="{{ cfg.management.ssid }}" required></label>
     <label>PSK <input name="psk" type="password" value="{{ cfg.management.psk }}"></label>
@@ -21,5 +26,22 @@
     <button type="submit">(Re)connect</button>
   </form>
   <div class="api-result" id="result-mgmt-connect"></div>
+</section>
+
+<section class="card">
+  <h2>Static IP</h2>
+  <p>Lock the management interface to a fixed IP address. <strong>Warning:</strong> Dashboard URL will change.</p>
+  <form action="javascript:void(0)" method="post" data-api="/api/management/lock-ip" data-method="POST" data-result="#result-mgmt-lockip">
+    <label>IP <input name="ip" value="{{ mgmt.ip or '' }}" placeholder="192.168.1.3" required></label>
+    <label>Gateway <input name="gateway" value="{{ mgmt.gateway or '' }}" placeholder="192.168.1.1"></label>
+    <label>DNS <input name="dns" value="1.1.1.1,8.8.8.8" placeholder="1.1.1.1,8.8.8.8"></label>
+    <button type="submit">Lock IP</button>
+  </form>
+  <div class="api-result" id="result-mgmt-lockip"></div>
+
+  <form action="javascript:void(0)" method="post" data-api="/api/management/dhcp" data-method="POST" data-result="#result-mgmt-dhcp">
+    <button type="submit">Return to DHCP</button>
+  </form>
+  <div class="api-result" id="result-mgmt-dhcp"></div>
 </section>
 {% endblock %}

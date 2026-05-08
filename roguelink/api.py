@@ -149,6 +149,20 @@ def api_management_connect(_: str = Depends(require_auth)):
     return management_manager.connect()
 
 
+@app.post("/api/management/lock-ip")
+def api_management_lock_ip(
+    ip: str = Form(...),
+    gateway: str = Form(""),
+    dns: str = Form(""),
+    _: str = Depends(require_auth),
+):
+    return management_manager.lock_ip(ip, gateway, dns)
+
+
+@app.post("/api/management/dhcp")
+def api_management_dhcp(_: str = Depends(require_auth)):
+    return management_manager.release_dhcp()
+
 @app.get("/api/wan")
 def api_wan(_: str = Depends(require_auth)):
     return wan_manager.status()
